@@ -4,8 +4,10 @@ import { dirname, resolve } from "node:path";
 
 const DATABASE_PATH = process.env.DATABASE_PATH ?? "./data/todomvc.db";
 
-const dbDir = dirname(resolve(DATABASE_PATH));
-if (!existsSync(dbDir)) mkdirSync(dbDir, { recursive: true });
+if (DATABASE_PATH !== ":memory:") {
+  const dbDir = dirname(resolve(DATABASE_PATH));
+  if (!existsSync(dbDir)) mkdirSync(dbDir, { recursive: true });
+}
 
 export const db = new Database(DATABASE_PATH, { create: true });
 

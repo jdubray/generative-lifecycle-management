@@ -151,16 +151,19 @@ cache that make this economical at scale.
 
 ---
 
-### Run the e2e suite
+### Run the test suites
 
-The Playwright test files enumerated in each `spec.acceptance` deliverable are
-committed under `test/e2e/`. They boot the server against an isolated SQLite
-file and exercise every case listed in the sekkei.
+Two layers cover the eight Components' `spec.acceptance` deliverables:
 
 ```sh
 cd todo-mvc/src
+
+# Unit tests — 35 cases across filter / repository / REST API
+bun run test                        # ~140ms; isolated :memory: SQLite
+
+# End-to-end tests — 39 cases across the five UI Components
 bunx playwright install chromium    # one-time browser download
-bun run test:e2e                    # 39 tests across 5 spec files
+bun run test:e2e                    # ~14s; boots Bun against a test DB
 ```
 
 ---
@@ -170,9 +173,9 @@ bun run test:e2e                    # 39 tests across 5 spec files
 - **Sekkei specification:** v1.1, validated against two sekkeis
   (`kizo:web.todomvc @ A.0` and `kizo:food.fullservicerestaurant @ A.0`).
 - **TodoMVC sekkei:** A.0, in review.
-- **TodoMVC implementation:** generated and running locally. Passes the REST
-  contract acceptance criteria and all 39 Playwright e2e cases enumerated in
-  the acceptance specs.
+- **TodoMVC implementation:** generated and running locally. Passes the 35
+  bun:test unit cases (filter / repository / REST API) and all 39 Playwright
+  e2e cases enumerated across the eight Components' acceptance specs.
 
 Open items for v1.2+ (multi-parent inheritance, dBOM schema, `sekkei.lock`
 format, find_number conventions) are listed at the end of the specification.
