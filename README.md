@@ -7,7 +7,7 @@
 > machine-runnable, the design *is* the artifact under management and the code is a
 > derived build product.
 >
-> — paraphrased from [Jean-Jacques Dubray, *Every mature engineering discipline…*](https://www.linkedin.com/posts/jdubray_every-mature-engineering-discipline-be-it-ugcPost-7459065106908307457-AM_n)
+> — [Jean-Jacques Dubray, *Every mature engineering discipline…*](https://www.linkedin.com/posts/jdubray_every-mature-engineering-discipline-be-it-ugcPost-7459065106908307457-AM_n)
 
 This repository is the working specification and reference implementation of
 **Generative Lifecycle Management (GLM)** — a Product Lifecycle Management (PLM)
@@ -27,6 +27,9 @@ regenerate into working software.
 │   ├── sekkei_schema.yaml          Informative YAML mirror
 │   ├── validate.py                 Schema validator (schema gate only)
 │   └── VALIDATION_REPORT.md
+│
+├── mockup/                  Interactive UX prototype of the GLM workbench
+│                            (deployed to GitHub Pages — see mockup/README.md)
 │
 └── todo-mvc/                Forward-designed validation case
     ├── sekkei-todomvc/      kizo:web.todomvc @ A.0 — 57-node sekkei
