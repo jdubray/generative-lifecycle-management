@@ -44,6 +44,14 @@ A node's `stratum` field places it in one of five layers. The hierarchy is stric
 
 **§C.1 amendment — System recursion.** Originally the strata were strict (System could not contain System). Reverse-engineering BaanBaan revealed a real design pressure: the root System had four large internal divisions (`register`, `communication`, `onlineordering`, `reservations`) that needed System-level structuring (own parameters, own dBOM-eventually, own Capabilities) without being separate deployable products. The amendment permits a System to compose other Systems, called **Sub-Systems**. The strict hierarchy below the System tier is preserved; only the System tier is recursive. A Sub-System is identified by a `kizo:` id that extends its parent's id (e.g., `kizo:food.fullservicerestaurant.register` is a Sub-System of `kizo:food.fullservicerestaurant`).
 
+**§C.1.b amendment — `system_role` discriminator (v1.1.9).** A root System and a Sub-System share the same structural shape (both compose Capabilities, both have parameters, both have provenance and revisions), but they differ in *lifecycle role*: a root is the deliverable that ships to an operator; a Sub-System is a planning grouping that never leaves the design. PLM expresses this with a discriminator field on a single Item class, not with two separate classes (Aras: Top-Level boolean; Windchill: End-Item Type; Teamcenter: Item Type taxonomy). The sekkei schema follows the same pattern: every System node declares `body.system_role`, with values:
+
+- **`root`** — the deliverable product family unit. Cardinality: exactly 1 per sekkei graph. MUST own an `acceptance_gate`. MUST have `dbom_ref` (a path, or explicit `null` with documented rationale at small scale).
+- **`subsystem`** — a structural grouping under a root or another Sub-System. Cardinality: N. MUST have `dbom_ref: null` (Sub-Systems do not deploy independently). Inherits the root's `acceptance_gate`.
+- **`platform`** — *reserved.* A shared-across-products structure whose parameter defaults are inherited by descendant variants (e.g., VW MQB-style). May itself have a `dbom` if it independently deploys. Not yet realized in any sekkei.
+
+The discriminator is checked at evaluation time by the verifier (gate 2.b — role consistency). The schema enforces conditional rules: `root → required acceptance_gate`; `subsystem → dbom_ref must be null`.
+
 A spec is a **leaf**. It does not compose. If a spec wants to reference another spec (e.g., a schema spec referenced from an acceptance spec), it does so by `$ref`-style id reference inside its body, not by `composes-of`.
 
 ---
@@ -182,14 +190,27 @@ The `body` field is stratum-specific. The schema (`sekkei.schema.json`) enforces
 ### 7.1 System body
 
 ```yaml
+# Root System (cardinality 1 per graph)
 body:
-  dbom_ref: ./dbom.yaml             # path to the dBOM (or null at small scale)
+  system_role: root                 # v1.1.9: required discriminator
+  dbom_ref: ./dbom.yaml             # path to the dBOM (or null at small scale with rationale)
   realization_summary: |
     Single Bun process. Hono router. bun:sqlite (WAL)...
   acceptance_gate: |
     Regenerating from this sekkei must produce a system that:
       1. Passes every spec.acceptance.deliverable
       2. ...
+```
+
+```yaml
+# Sub-System
+body:
+  system_role: subsystem            # v1.1.9: required discriminator
+  dbom_ref: null                    # MUST be null — Sub-Systems do not deploy independently
+  realization_summary: |
+    Internal grouping of register-side Components: order_management,
+    auth-scoped routes, dashboard surfaces...
+  # acceptance_gate omitted — inherited from the root System
 ```
 
 ### 7.2 Capability body

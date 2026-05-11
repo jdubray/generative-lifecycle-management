@@ -174,6 +174,48 @@ def check_brief_coverage(nodes_by_id):
     return missing
 
 
+def check_role_consistency(nodes_by_id):
+    """Gate 2.b (v1.1.9): system_role discriminator matches position.
+       - exactly 1 root per graph
+       - subsystems have dbom_ref=null
+       - role matches structural position (root: not composed; subsystem: composed)"""
+    issues = []
+    systems = [(nid, n) for nid, (n, _) in nodes_by_id.items() if n.get("stratum") == "system"]
+    composed_systems = set()
+    for nid, (n, _) in nodes_by_id.items():
+        for rel in n.get("relationships", []) or []:
+            if rel.get("kind") == "composes-of":
+                t = rel.get("target", "")
+                if t in nodes_by_id and nodes_by_id[t][0].get("stratum") == "system":
+                    composed_systems.add(t)
+    root_count = 0
+    for nid, n in systems:
+        body = n.get("body") or {}
+        role = body.get("system_role")
+        is_composed = nid in composed_systems
+        if role is None:
+            issues.append(f"  {nid}: missing body.system_role (v1.1.9+ requires root|subsystem|platform)")
+            continue
+        if role == "root":
+            root_count += 1
+            if is_composed:
+                issues.append(f"  {nid}: declares system_role=root but IS composed-of by another System")
+            if "acceptance_gate" not in body:
+                issues.append(f"  {nid}: system_role=root requires body.acceptance_gate")
+        elif role == "subsystem":
+            if not is_composed:
+                issues.append(f"  {nid}: declares system_role=subsystem but is NOT composed-of by any System")
+            if body.get("dbom_ref") is not None:
+                issues.append(f"  {nid}: system_role=subsystem requires body.dbom_ref=null (got {body.get('dbom_ref')!r})")
+        elif role == "platform":
+            pass  # reserved
+        else:
+            issues.append(f"  {nid}: invalid body.system_role {role!r}")
+    if root_count != 1:
+        issues.append(f"  cardinality error: expected exactly 1 root System; found {root_count}")
+    return issues
+
+
 def check_spec_coverage(nodes_by_id):
     """For each Component, verify required spec_kinds exist."""
     issues = []
@@ -242,6 +284,7 @@ def main():
     for nid, (node, src) in nodes_by_id.items():
         envelope_errors.extend(check_envelope(node, src))
     hierarchy_errors = check_stratum_hierarchy(nodes_by_id)
+    role_issues      = check_role_consistency(nodes_by_id)
     dangling         = check_closure(nodes_by_id)
     missing_brief    = check_brief_coverage(nodes_by_id)
     spec_coverage    = check_spec_coverage(nodes_by_id)
@@ -262,12 +305,13 @@ def main():
 
     report("1. Envelope checks", envelope_errors)
     report("2. Stratum hierarchy (§C.1 amendment)", hierarchy_errors)
+    report("2.b Role consistency (§C.1.b — system_role discriminator)", role_issues)
     report("3. Closure completeness (composes-of / depends-on targets)", dangling)
     report("4. Brief coverage", missing_brief)
     report("5. Spec coverage (functional+technical+acceptance+prompt per Component)", spec_coverage)
     report("6. Spec quality (acceptance has deliverables+verifier; prompt has context_bundle+outputs+verifier)", spec_quality)
 
-    overall_ok = not (envelope_errors or hierarchy_errors or missing_brief or spec_coverage or spec_quality)
+    overall_ok = not (envelope_errors or hierarchy_errors or role_issues or missing_brief or spec_coverage or spec_quality)
     print("\n=== Overall A.0 acceptance gate ===")
     print(f"  {'PASS' if overall_ok else 'FAIL'} (dangling references treated as warnings; review report)")
     return 0 if overall_ok else 1

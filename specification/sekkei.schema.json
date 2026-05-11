@@ -298,6 +298,15 @@
     "systemBody": {
       "type": "object",
       "properties": {
+        "system_role": {
+          "type": "string",
+          "enum": [
+            "root",
+            "subsystem",
+            "platform"
+          ],
+          "description": "PLM 'same class, different role' discriminator. Required on every System node in v1.1.9+. Root = the deliverable product family unit (cardinality 1 per graph; owns dBOM + acceptance gate). Subsystem = structural grouping under a root or another subsystem; cannot own a dBOM. Platform = reserved for shared-across-products structures whose parameter defaults are inherited by descendant variants."
+        },
         "dbom_ref": {
           "oneOf": [
             {
@@ -306,7 +315,8 @@
             {
               "type": "null"
             }
-          ]
+          ],
+          "description": "Path to dbom.yaml. MUST be present (string or explicit null with rationale) on root; MUST be null on subsystem; MAY be set on platform if the platform itself deploys."
         },
         "realization_summary": {
           "type": "string"
@@ -315,7 +325,45 @@
           "type": "string"
         }
       },
-      "additionalProperties": true
+      "additionalProperties": true,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "system_role": {
+                "const": "root"
+              }
+            },
+            "required": [
+              "system_role"
+            ]
+          },
+          "then": {
+            "required": [
+              "acceptance_gate"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "system_role": {
+                "const": "subsystem"
+              }
+            },
+            "required": [
+              "system_role"
+            ]
+          },
+          "then": {
+            "properties": {
+              "dbom_ref": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
     },
     "capabilityBody": {
       "type": "object",

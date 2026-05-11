@@ -95,7 +95,8 @@ relationships:
     attributes: { role: http_framework }
 
 body:
-  dbom_ref: null   # No dBOM at this scale. Single host, single port, single SQLite file.
+  system_role: root            # v1.1.9: required discriminator (this is the only System node)
+  dbom_ref: null               # No dBOM at this scale. Single host, single port, single SQLite file.
 
   realization_summary: |
     Single Bun process. Hono router. bun:sqlite (WAL). Static frontend

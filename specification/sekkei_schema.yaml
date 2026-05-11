@@ -20,6 +20,11 @@
 #   v1.1.7  composes-of attributes formalized: find_number, binding, signal.
 #   v1.1.8  inspection_assertions retained but downgraded to legacy back-compat;
 #           load-bearing verifier hooks live in spec.acceptance.body.verifier.
+#   v1.1.9  system_role discriminator added to System body (enum: root, subsystem,
+#           platform). Matches PLM's 'same class, different role' pattern (Aras
+#           Top-Level boolean, Windchill End-Item Type, Teamcenter Item Type).
+#           Cardinality: exactly 1 root per sekkei graph. Subsystem MUST have
+#           dbom_ref=null; root MUST have acceptance_gate. Platform reserved.
 # ─────────────────────────────────────────────────────────────────────────────
 
 $schema: https://puffin.dev/glm/v1/sekkei.schema.json
@@ -79,10 +84,25 @@ SekkeiNode:
 
 # ─── 2.1 System body ────────────────────────────────────────────────────────
 # §C.1 amendment permits a System to compose Sub-Systems (also stratum=system).
+# v1.1.9: a System node MUST declare its `system_role`. Cardinality: exactly
+# 1 node with system_role=root per sekkei graph. The other Systems (the ones
+# composed-of by another System) MUST declare system_role=subsystem.
 SystemBody:
-  dbom_ref: string | null                 # path to dbom.yaml; null at small scale
+  system_role:                             # REQUIRED on every System node
+    enum:
+      - root        # the deliverable product family unit; cardinality 1 per graph;
+                    # owns dBOM (or explicit null with rationale); owns acceptance_gate
+      - subsystem   # structural grouping under a root or another subsystem;
+                    # cardinality N; dbom_ref MUST be null
+      - platform    # (reserved) shared-across-products structure whose parameter
+                    # defaults are inherited by descendant variants; may itself
+                    # have a dbom if it independently deploys
+  dbom_ref: string | null                 # path to dbom.yaml.
+                                          # MUST be present (string OR explicit null) on root;
+                                          # MUST be null on subsystem;
+                                          # MAY be set on platform.
   realization_summary: string
-  acceptance_gate: string
+  acceptance_gate: string                  # REQUIRED on root; inherited from root on subsystem
 
 # ─── 2.2 Capability body ────────────────────────────────────────────────────
 CapabilityBody:
