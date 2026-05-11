@@ -1,0 +1,135 @@
+$schema: https://puffin.dev/glm/v1/sekkei.schema.json
+# ─────────────────────────────────────────────────────────────────────────────
+# SPECS — todo_filter_router
+# 5 spec leaves: functional, technical, business_rule, acceptance, prompt
+# ─────────────────────────────────────────────────────────────────────────────
+---
+id: kizo:web.todomvc.web_ui.todo_filter_router.spec.functional
+stratum: spec
+spec_kind: functional
+title: Todo Filter Router — Functional
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  behaviors:
+    - id: init
+      signature: "init({ store, render }): void"
+      description: |
+        1. Install hashchange listener on window
+        2. Read window.location.hash NOW (page load might already
+           have a non-default hash, e.g. user navigated directly to
+           #/active)
+        3. Resolve to filter via hash_to_filter
+        4. Update store.filter and call render()
+    - id: hash_to_filter
+      signature: "(hash: string): 'all'|'active'|'completed'"
+      description: |
+        Map per the hash_routes parameter:
+          ''      → 'all'
+          '#/'    → 'all'
+          '#/active'    → 'active'
+          '#/completed' → 'completed'
+          (anything else) → 'all' AND rewrite location.hash to '#/'
+    - id: handleHashChange
+      signature: "(event: HashChangeEvent): void"
+      description: |
+        Same as init step 3-4: re-derive filter, update store, render.
+---
+id: kizo:web.todomvc.web_ui.todo_filter_router.spec.technical
+stratum: spec
+spec_kind: technical
+title: Todo Filter Router — Technical
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  module: public/js/filter-router.js
+  exports: "default function init({store, render})"
+  event_target: "window"
+  event_type: "hashchange"
+  hash_rewrite_strategy: |
+    For unknown hashes, set window.location.hash = '#/' (assignment
+    triggers a follow-up hashchange). To avoid double-rendering, the
+    handler is idempotent — re-firing with '#/' just re-resolves to
+    'all' and re-renders, which is a no-op when filter is already 'all'.
+    Acceptable because render is cheap.
+  initial_load_handling: |
+    Does NOT wait for DOMContentLoaded — assumed called by app.js
+    after the DOM is ready. Reads location.hash directly on init.
+---
+id: kizo:web.todomvc.web_ui.todo_filter_router.spec.business_rule
+stratum: spec
+spec_kind: business_rule
+title: Todo Filter Router — Business Rules
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  rules:
+    - id: BR-ROUTER-001
+      rule: "Only three filter values are exposed to the rest of the app: all, active, completed."
+      enforcement: hash_to_filter has no other return path
+    - id: BR-ROUTER-002
+      rule: "Unknown hashes MUST be rewritten to '#/' (canonical form), not silently ignored."
+      enforcement: location.hash assignment in hash_to_filter fallback branch
+    - id: BR-ROUTER-003
+      rule: "Direct navigation to /#/active MUST work on first paint (i.e., page open lands user on the active filter)."
+      enforcement: init reads current hash before installing listener
+    - id: BR-ROUTER-004
+      rule: "Router MUST NOT make any HTTP API call. It only mutates store.filter."
+      enforcement: no fetch in this module
+---
+id: kizo:web.todomvc.web_ui.todo_filter_router.spec.acceptance
+stratum: spec
+spec_kind: acceptance
+title: Todo Filter Router — Acceptance
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  deliverables:
+    - kind: test_file
+      path: test/e2e/filter-router.spec.ts
+      framework: playwright
+      cases:
+        - "Open page at /#/active → store.filter is 'active' AND active link has class 'selected'"
+        - "Open page at /#/ → store.filter is 'all' AND All link has class 'selected'"
+        - "Open page at /#/completed → store.filter is 'completed' AND Completed link has class 'selected'"
+        - "Open page at /#/garbage → URL is rewritten to /#/ AND store.filter is 'all'"
+        - "Click Active link → URL becomes #/active AND list re-renders to active items only"
+        - "Click All link → URL becomes #/ AND list re-renders to all items"
+        - "Use browser back after clicking through filters → URL hash and selected link match (history works)"
+  runtime_invariants:
+    - "store.filter ∈ {'all', 'active', 'completed'} at all times"
+    - "hash_to_filter is referentially transparent (same input → same output)"
+  verifier:
+    command: "bunx playwright test test/e2e/filter-router.spec.ts"
+    expect: "all tests pass; exit code 0"
+---
+id: kizo:web.todomvc.web_ui.todo_filter_router.spec.prompt
+stratum: spec
+spec_kind: prompt
+title: Todo Filter Router — Generation Prompt
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  context_bundle:
+    - kizo:web.todomvc.web_ui                                    # hash_routes parameter
+    - kizo:web.todomvc.web_ui.todo_filter_router
+    - kizo:web.todomvc.web_ui.todo_filter_router.url_hash_event_flow
+    - kizo:web.todomvc.web_ui.todo_filter_router.spec.functional
+    - kizo:web.todomvc.web_ui.todo_filter_router.spec.technical
+    - kizo:web.todomvc.web_ui.todo_filter_router.spec.business_rule
+    - kizo:web.todomvc.web_ui.todo_filter_router.spec.acceptance
+  outputs:
+    - path: public/js/filter-router.js
+    - path: test/e2e/filter-router.spec.ts
+  prompt_template: |
+    Implement the URL-hash filter router. Default-export init({store, render}).
+    Read location.hash on init AND install a hashchange listener.
+    Map per the table in spec.functional. Rewrite unknown hashes to '#/'.
+
+    HARD CONSTRAINTS:
+    - NO HTTP calls.
+    - The three valid filter values are 'all', 'active', 'completed' — nothing else may be assigned to store.filter.
+    - Direct navigation to /#/active on first load MUST land in active filter (don't only listen for change events).
+  verifier:
+    command: "bunx playwright test test/e2e/filter-router.spec.ts"
+    expect: "all tests pass; exit code 0"

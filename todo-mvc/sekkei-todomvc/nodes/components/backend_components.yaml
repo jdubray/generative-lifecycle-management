@@ -1,0 +1,122 @@
+$schema: https://puffin.dev/glm/v1/sekkei.schema.json
+# ─────────────────────────────────────────────────────────────────────────────
+# COMPONENT BUNDLE — Backend (todo_management Capability)
+# ─────────────────────────────────────────────────────────────────────────────
+---
+id: kizo:web.todomvc.todo_management.todo_repository
+stratum: component
+title: Todo Repository
+description: |
+  Owns the todos table and the CRUD operations against it: create, list,
+  get-by-id, update (title and/or completed), delete, delete-completed,
+  and toggle-all (set every todo's completed to a target value).
+  Persistence is bun:sqlite WAL mode. Every write is synchronous from
+  the caller's perspective; bun:sqlite serializes writes in-process.
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+parameters:
+  - name: id_format
+    schema: { type: string, enum: [ulid, uuid_v7, sequential] }
+    default: ulid
+    binding_scope: component
+  - name: created_at_default
+    schema: { type: string }
+    default: "datetime('now')"
+    binding_scope: component
+relationships:
+  - kind: composes-of
+    target: kizo:web.todomvc.todo_management.todo_repository.todo_schema
+body:
+  boundary: |
+    Owns the todos table DDL and the per-operation SQL. Does NOT own:
+    REST routing (todo_rest_api), filter semantics (todo_filter_engine),
+    or the SQLite connection (Bun runtime singleton).
+  runtime: in_process
+  realization_files:
+    - src/repository.ts
+    - src/db.ts
+---
+id: kizo:web.todomvc.todo_management.todo_filter_engine
+stratum: component
+title: Todo Filter Engine
+description: |
+  Pure function that filters a todo set by status. Three modes: all
+  (no filter), active (completed=false), completed (completed=true).
+  Lives separately from the repository so the same logic can be
+  applied client-side for optimistic UI updates and server-side for
+  the GET /api/todos?filter=... query.
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+parameters:
+  - name: default_filter
+    schema: { type: string, enum: [all, active, completed] }
+    default: all
+    binding_scope: component
+constraints:
+  - kind: invariant
+    expression: "filter('all', todos) == todos"
+    severity: error
+  - kind: invariant
+    expression: "filter('active', todos).every(t => !t.completed)"
+    severity: error
+  - kind: invariant
+    expression: "filter('completed', todos).every(t => t.completed)"
+    severity: error
+body:
+  boundary: |
+    Pure function. No I/O. Stateless. Used by both the GET handler in
+    todo_rest_api (server-side) and the todo_list_view (client-side
+    rendering of the current filter view).
+  runtime: in_process_and_in_browser
+  realization_files:
+    - src/filter.ts                # backend
+    - public/js/filter.js          # frontend (or transpiled from same source)
+---
+id: kizo:web.todomvc.todo_management.todo_rest_api
+stratum: component
+title: Todo REST API
+description: |
+  Hono router exposing the seven endpoints the Web UI consumes:
+    GET    /api/todos[?filter=all|active|completed]
+    POST   /api/todos               body: { title }
+    PATCH  /api/todos/:id           body: { title? , completed? }
+    DELETE /api/todos/:id
+    POST   /api/todos/toggle-all    body: { completed: boolean }
+    DELETE /api/todos/completed     (clear all completed)
+    GET    /healthz                 (liveness)
+
+  Plus CORS middleware and JSON-body parsing. All handlers delegate to
+  todo_repository for persistence and todo_filter_engine for filter
+  semantics. Returns 400 on validation failure, 404 on missing id, 422
+  on empty title after trim, 200/201/204 on success.
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+parameters:
+  - name: api_prefix
+    schema: { type: string }
+    default: /api
+    binding_scope: component
+  - name: cors_enabled
+    schema: { type: boolean }
+    default: true
+    binding_scope: component
+  - name: request_logging
+    schema: { type: boolean }
+    default: true
+    binding_scope: component
+relationships:
+  - kind: composes-of
+    target: kizo:web.todomvc.todo_management.todo_rest_api.rest_api_contract
+  - kind: depends-on
+    target: kizo:web.todomvc.todo_management.todo_repository
+  - kind: depends-on
+    target: kizo:web.todomvc.todo_management.todo_filter_engine
+body:
+  boundary: |
+    Owns the HTTP routes, request validation (zod or hand-rolled),
+    response shaping, and HTTP status codes. Does not own SQL
+    (repository) or filter logic (filter_engine).
+  runtime: in_process
+  realization_files:
+    - src/server.ts
+    - src/routes/todos.ts

@@ -1,0 +1,95 @@
+$schema: https://puffin.dev/glm/v1/sekkei.schema.json
+# ─────────────────────────────────────────────────────────────────────────────
+# EXTERNAL DEPENDENCIES — pinned at root; never regenerated
+# ─────────────────────────────────────────────────────────────────────────────
+
+dependencies:
+  - id: dep:bun
+    purl: pkg:generic/bun@1.1
+    role: runtime
+    license: MIT
+    notes: |
+      JS runtime + statically linked SQLite (bun:sqlite). Single
+      dependency for the entire backend.
+    consumed_by: [kizo:web.todomvc, all_components]
+
+  - id: dep:hono
+    purl: pkg:npm/hono@^4.0.0
+    role: http_framework
+    license: MIT
+    notes: |
+      Tiny Bun-native HTTP router. Used for the seven REST endpoints
+      and CORS middleware.
+    consumed_by: [kizo:web.todomvc.todo_management.todo_rest_api]
+
+  - id: dep:bun-sqlite
+    purl: pkg:bun/sqlite@bundled
+    role: persistence
+    license: "Public Domain (SQLite)"
+    notes: |
+      Bundled SQLite 3 in Bun. WAL mode, foreign_keys ON, NORMAL
+      synchronous. Not independently versionable.
+    consumed_by:
+      - kizo:web.todomvc.todo_management.todo_repository
+      - kizo:web.todomvc.todo_management.todo_repository.todo_schema
+
+  - id: dep:ulid
+    purl: pkg:npm/ulid@^2
+    role: id_generation
+    license: MIT
+    notes: |
+      Sortable lexicographic IDs for todos. Optional — could swap for
+      uuid-v7 or sequential. Default per id_format parameter.
+    consumed_by: [kizo:web.todomvc.todo_management.todo_repository]
+
+  - id: dep:zod
+    purl: pkg:npm/zod@^3
+    role: validation
+    license: MIT
+    notes: |
+      Request body validation in todo_rest_api. Optional — could
+      hand-roll validation; zod is conventional.
+    consumed_by: [kizo:web.todomvc.todo_management.todo_rest_api]
+
+  - id: dep:todomvc-app-css
+    purl: pkg:npm/todomvc-app-css@^2
+    role: frontend_styles
+    license: MIT
+    notes: |
+      Canonical TodoMVC base + app stylesheet. Drop-in to public/css/.
+      Ensures the regenerated UI is visually indistinguishable from
+      the reference.
+    consumed_by: [kizo:web.todomvc.web_ui.todo_pwa_shell]
+
+  - id: dep:todomvc-common
+    purl: pkg:npm/todomvc-common@^1
+    role: frontend_polyfills
+    license: MIT
+    notes: |
+      Optional. Provides the canonical "info footer" link block at
+      bottom of page. Cosmetic.
+    consumed_by: [kizo:web.todomvc.web_ui.todo_pwa_shell]
+
+# ─── Test framework (only used by Inspection Assertion verifiers) ──────────
+  - id: dep:bun-test
+    purl: pkg:bun/test@bundled
+    role: testing
+    license: "MIT (Bun)"
+    notes: "Bun's built-in test runner. Used by every Component's deliverable test file."
+    consumed_by: all_acceptance_specs
+
+  - id: dep:playwright
+    purl: pkg:npm/@playwright/test@^1.40
+    role: e2e_testing
+    license: Apache-2.0
+    notes: |
+      End-to-end test runner mirroring the reference at
+      https://demo.playwright.dev/todomvc/. Used to validate the
+      regenerated frontend against canonical TodoMVC behavior.
+    consumed_by: [kizo:web.todomvc.web_ui]
+
+# ─── Hardware ──────────────────────────────────────────────────────────────
+hardware:
+  - id: hw:laptop
+    role: compute_host
+    notes: Single dev laptop. No special hardware requirements.

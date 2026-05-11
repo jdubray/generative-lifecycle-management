@@ -1,0 +1,196 @@
+$schema: https://puffin.dev/glm/v1/sekkei.schema.json
+# ─────────────────────────────────────────────────────────────────────────────
+# SPECS — todo_list_view
+# 5 spec leaves: functional, technical, business_rule, acceptance, prompt
+# ─────────────────────────────────────────────────────────────────────────────
+---
+id: kizo:web.todomvc.web_ui.todo_list_view.spec.functional
+stratum: spec
+spec_kind: functional
+title: Todo List View — Functional
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  behaviors:
+    - id: render
+      signature: "render(): void"
+      description: |
+        Read store.todos and store.filter. Apply filter via
+        todo_filter_engine. Replace ul.todo-list children with one
+        <li> per filtered todo. Each <li> contains: a div.view (with
+        input.toggle checkbox, label, button.destroy) AND optionally
+        an input.edit (only when this item is currently in EDITING
+        state). Mark <li> with class 'completed' if t.completed, and
+        class 'editing' if it is the currently-editing item.
+        Update toggle-all checkbox state to reflect "all items completed".
+    - id: handleToggle
+      signature: "(todoId, nextCompleted): void"
+      description: |
+        PATCH /api/todos/:id with { completed: nextCompleted }. On 200,
+        update store.todos in place, render(). On error, no state
+        change; show error banner.
+    - id: handleDestroy
+      signature: "(todoId): void"
+      description: |
+        DELETE /api/todos/:id. On 204, remove from store.todos, render().
+    - id: handleToggleAll
+      signature: "(): void"
+      description: |
+        Compute target = store.todos.some(t => !t.completed). POST
+        /api/todos/toggle-all with { completed: target }. On 200,
+        update each store.todos[i].completed = target, render().
+    - id: enterEdit
+      signature: "(todoId): void"
+      description: |
+        Triggered by double-click on label. Mark the item as currently
+        editing (in a per-view-instance variable, NOT in store), render
+        — the new <li> includes input.edit autofocused at the END of
+        its value. Exit on Enter, blur, or Escape per edit_mode_fsm.
+    - id: commitEdit
+      signature: "(todoId, newTitle): void"
+      description: |
+        trim(newTitle). If empty → DELETE the todo. Else PATCH title.
+        Clear editing state, render.
+    - id: cancelEdit
+      signature: "(todoId): void"
+      description: |
+        Discard the edit. Restore original title. Clear editing state.
+        render.
+  delegated:
+    edit_mode_fsm: kizo:web.todomvc.web_ui.todo_list_view.edit_mode_fsm
+---
+id: kizo:web.todomvc.web_ui.todo_list_view.spec.technical
+stratum: spec
+spec_kind: technical
+title: Todo List View — Technical
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  modules:
+    - public/js/todo-list-view.js   # the view itself
+    - public/js/edit-mode-fsm.js    # tiny FSM (3 states) used per item
+  rendering: |
+    Naive innerHTML wipe + rebuild. ul.todo-list.replaceChildren(...frags).
+    Acceptable up to ~1000 todos; canonical Playwright tests use ≤10.
+  event_delegation: |
+    A single click + dblclick + change listener on ul.todo-list,
+    using event.target.closest() to identify the affected <li>'s
+    data-id. Avoids re-binding per item on every render.
+  edit_mode_state: |
+    Held in a closure variable inside the view, NOT in store. Only
+    one item can be in EDITING at a time per view instance.
+    enterEdit clears any existing editing item first.
+  autofocus_in_edit: |
+    After render() puts input.edit in the DOM, call
+    inputEdit.focus() and inputEdit.setSelectionRange(value.length, value.length)
+    so the cursor is at the end of the current title.
+  toggle_all_state: |
+    The toggle-all checkbox.checked = (store.todos.length > 0 && store.todos.every(t => t.completed))
+    Updated on every render.
+  fsm_states_referenced:
+    - VIEWING
+    - EDITING
+    - DELETED  (transient terminal — used to signal removal)
+---
+id: kizo:web.todomvc.web_ui.todo_list_view.spec.business_rule
+stratum: spec
+spec_kind: business_rule
+title: Todo List View — Business Rules
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  rules:
+    - id: BR-LIST-001
+      rule: "Double-click on label enters EDITING; single click does NOT."
+      enforcement: separate click vs dblclick handlers
+    - id: BR-LIST-002
+      rule: "Enter while EDITING with empty-after-trim MUST DELETE the todo."
+      enforcement: commitEdit branches on trim-length
+    - id: BR-LIST-003
+      rule: "Escape while EDITING MUST discard the edit and keep the original title (not call PATCH)."
+      enforcement: cancelEdit makes no API call
+    - id: BR-LIST-004
+      rule: "Blur while EDITING MUST behave like Enter (commit, not discard)."
+      enforcement: blur listener calls commitEdit
+    - id: BR-LIST-005
+      rule: "Toggle-all MUST set completed = (some-active ? true : false). It is NOT a pure inversion."
+      enforcement: handleToggleAll computes target from current state
+    - id: BR-LIST-006
+      rule: "Items hidden by the current filter MUST NOT be in the DOM at all (not just CSS-hidden)."
+      enforcement: filter applied BEFORE render, output array is what's rendered
+    - id: BR-LIST-007
+      rule: "Only one item can be in EDITING at a time."
+      enforcement: enterEdit clears any existing editingId first
+---
+id: kizo:web.todomvc.web_ui.todo_list_view.spec.acceptance
+stratum: spec
+spec_kind: acceptance
+title: Todo List View — Acceptance
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  deliverables:
+    - kind: test_file
+      path: test/e2e/todo-list.spec.ts
+      framework: playwright
+      cases:
+        - "Add 3 todos → ul.todo-list has 3 <li>s in insertion order"
+        - "Click toggle on item 2 → li.completed appears on item 2 only"
+        - "Hover item 1 → button.destroy is visible (CSS check)"
+        - "Click destroy on item 1 → only 2 <li>s remain"
+        - "Toggle-all when none completed → all 3 become completed; toggle-all again → all become active"
+        - "Double-click label of item 2 → li.editing class appears, input.edit is focused, value matches title"
+        - "In edit mode, type ' updated', press Enter → label text is original+' updated' (trimmed), li.editing removed"
+        - "In edit mode, clear text, press Enter → that <li> is removed entirely"
+        - "In edit mode, type some change, press Escape → label keeps original text, no PATCH issued"
+        - "In edit mode, blur the input → behaves like Enter (commits)"
+        - "Filter set to 'active' → completed items not rendered at all (querySelectorAll('li.completed') is empty)"
+        - "Filter set to 'completed' → only completed rendered"
+    - kind: fsm_acceptance
+      reference: kizo:web.todomvc.web_ui.todo_list_view.edit_mode_fsm
+      assertion: "every transition in edit_mode_fsm has at least one Playwright case above exercising it"
+  runtime_invariants:
+    - "At most one li.editing exists at any time"
+    - "ul.todo-list.children.length === filter(store.filter, store.todos).length"
+  verifier:
+    command: "bunx playwright test test/e2e/todo-list.spec.ts"
+    expect: "all tests pass; exit code 0"
+---
+id: kizo:web.todomvc.web_ui.todo_list_view.spec.prompt
+stratum: spec
+spec_kind: prompt
+title: Todo List View — Generation Prompt
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  context_bundle:
+    - kizo:web.todomvc.web_ui
+    - kizo:web.todomvc.web_ui.todo_list_view
+    - kizo:web.todomvc.web_ui.todo_list_view.edit_mode_fsm
+    - kizo:web.todomvc.web_ui.todo_list_view.spec.functional
+    - kizo:web.todomvc.web_ui.todo_list_view.spec.technical
+    - kizo:web.todomvc.web_ui.todo_list_view.spec.business_rule
+    - kizo:web.todomvc.web_ui.todo_list_view.spec.acceptance
+    - kizo:web.todomvc.web_ui.todo_pwa_shell.spec.schema
+    - kizo:web.todomvc.todo_management.todo_rest_api.spec.functional
+    - kizo:web.todomvc.todo_management.todo_filter_engine.spec.functional
+  outputs:
+    - path: public/js/todo-list-view.js
+    - path: public/js/edit-mode-fsm.js
+    - path: test/e2e/todo-list.spec.ts
+  prompt_template: |
+    Implement the todo list view and the per-item edit-mode FSM.
+    Follow the canonical TodoMVC class-name contract from
+    todo_pwa_shell.spec.schema EXACTLY — the base CSS depends on it.
+    Implement enterEdit / commitEdit / cancelEdit per the
+    edit_mode_fsm Interaction. Use event delegation on ul.todo-list.
+
+    HARD CONSTRAINTS:
+    - blur on edit input MUST commit (not cancel).
+    - Empty-after-trim commit MUST DELETE the todo, not save an empty title.
+    - Escape MUST NOT issue any PATCH — pure cancel.
+    - toggle-all is a "make-them-all-the-same" operation derived from current state, not a pure inversion.
+    - Filtered-out items MUST NOT be in the DOM (no display:none hack).
+  verifier:
+    command: "bunx playwright test test/e2e/todo-list.spec.ts"
+    expect: "all tests pass; exit code 0"

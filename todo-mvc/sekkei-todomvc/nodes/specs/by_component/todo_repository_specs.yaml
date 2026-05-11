@@ -1,0 +1,222 @@
+$schema: https://puffin.dev/glm/v1/sekkei.schema.json
+# ─────────────────────────────────────────────────────────────────────────────
+# SPECS — todo_repository
+# 6 spec leaves: functional, technical, schema, business_rule, acceptance, prompt
+# ─────────────────────────────────────────────────────────────────────────────
+---
+id: kizo:web.todomvc.todo_management.todo_repository.spec.functional
+stratum: spec
+spec_kind: functional
+title: Todo Repository — Functional
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  behaviors:
+    - id: create
+      signature: "create({ title: string }): Todo"
+      description: |
+        Generate a new id (per `id_format` parameter; default ULID),
+        set completed=false, set created_at and updated_at to now,
+        INSERT into todos, return the full row.
+      preconditions:
+        - "title is non-empty after trim"
+      postconditions:
+        - "row exists in todos with the new id"
+        - "returned Todo has completed: false"
+    - id: list
+      signature: "list({ filter?: 'all'|'active'|'completed' }): Todo[]"
+      description: |
+        SELECT * FROM todos with WHERE clause derived from filter
+        (none for 'all', completed=0 for 'active', completed=1 for
+        'completed'). ORDER BY created_at ASC.
+    - id: get
+      signature: "get(id: string): Todo | null"
+      description: SELECT one by primary key. Returns null if not found.
+    - id: update
+      signature: "update(id, patch: { title?: string, completed?: boolean }): Todo | null"
+      description: |
+        UPDATE the supplied fields plus updated_at=now. If neither field
+        is supplied this is a no-op (still returns current row). Returns
+        null if id missing.
+      preconditions:
+        - "if patch.title supplied, it is non-empty after trim"
+    - id: delete
+      signature: "remove(id: string): boolean"
+      description: DELETE by primary key. Returns true if a row was removed.
+    - id: deleteCompleted
+      signature: "removeCompleted(): number"
+      description: DELETE WHERE completed=1. Returns the count removed.
+    - id: toggleAll
+      signature: "toggleAll(completed: boolean): number"
+      description: |
+        UPDATE todos SET completed=?, updated_at=now WHERE completed != ?
+        Returns the count of rows whose state actually changed.
+---
+id: kizo:web.todomvc.todo_management.todo_repository.spec.technical
+stratum: spec
+spec_kind: technical
+title: Todo Repository — Technical
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  implementation:
+    runtime: bun
+    storage: bun:sqlite (WAL mode)
+    connection: |
+      Singleton Database instance opened at startup with `database_path`
+      System parameter. PRAGMAs at open time:
+        PRAGMA journal_mode = WAL;
+        PRAGMA synchronous = NORMAL;
+        PRAGMA foreign_keys = ON;
+        PRAGMA busy_timeout = 5000;
+    prepared_statements: |
+      All operations use prepared statements (db.prepare(...).get/all/run)
+      cached on the repository instance for hot-path latency.
+    id_generation: |
+      ULID via the `ulid` package by default. Lexicographically sortable
+      → no need for a separate sort key. Repository accepts any string id
+      that satisfies the schema CHECK constraint (length > 0).
+    timestamps: |
+      created_at and updated_at are SQLite TEXT in ISO-8601 UTC produced
+      by `new Date().toISOString()` at the application layer (not
+      datetime('now') in SQL — that returns local-server time and lacks
+      milliseconds). The `created_at_default` parameter is the SCHEMA
+      DEFAULT, used only for hand-inserted rows; application-layer code
+      always provides the value explicitly.
+    serialization: |
+      Bun:sqlite serializes writes per-connection. No additional locking
+      needed for this single-process demo.
+    error_taxonomy:
+      - "title length 0 → SQLite CHECK constraint failure → repository throws ValidationError"
+      - "id collision → SQLite UNIQUE constraint failure → repository throws ConflictError"
+      - "id not found on get/update/delete → returns null/false (NOT an error)"
+  module_layout: |
+    src/db.ts        — opens the connection, applies PRAGMAs, exports `db`
+    src/repository.ts — exports class TodoRepository(db) with the methods above
+---
+id: kizo:web.todomvc.todo_management.todo_repository.spec.schema
+stratum: spec
+spec_kind: schema
+title: Todo Repository — Schema
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  data_shapes:
+    Todo:
+      type: object
+      properties:
+        id: { type: string, description: "ULID by default; any non-empty string accepted" }
+        title: { type: string, minLength: 1 }
+        completed: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+      required: [id, title, completed, created_at, updated_at]
+      additionalProperties: false
+  ddl_reference: kizo:web.todomvc.todo_management.todo_repository.todo_schema
+  serialization_to_sqlite: |
+    completed is stored as INTEGER (0 or 1) in SQLite and converted to
+    boolean at the repository boundary. created_at and updated_at are
+    stored as TEXT (ISO-8601).
+---
+id: kizo:web.todomvc.todo_management.todo_repository.spec.business_rule
+stratum: spec
+spec_kind: business_rule
+title: Todo Repository — Business Rules
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  rules:
+    - id: BR-REPO-001
+      rule: "A todo MUST have a title that is non-empty after trim."
+      enforcement: schema CHECK + repository validation
+    - id: BR-REPO-002
+      rule: "Once created, a todo's id never changes."
+      enforcement: PRIMARY KEY; no UPDATE statement targets the id column
+    - id: BR-REPO-003
+      rule: "updated_at MUST advance on every successful UPDATE."
+      enforcement: SET updated_at = ? in every UPDATE; no UPDATE bypasses this
+    - id: BR-REPO-004
+      rule: "deleteCompleted is idempotent (running it twice with no completed todos in between leaves the table unchanged after the first call)."
+      enforcement: simple DELETE WHERE completed=1
+    - id: BR-REPO-005
+      rule: "toggleAll(true) MUST be a no-op when every todo is already completed; same symmetric for toggleAll(false)."
+      enforcement: WHERE completed != ? clause skips rows already in target state
+---
+id: kizo:web.todomvc.todo_management.todo_repository.spec.acceptance
+stratum: spec
+spec_kind: acceptance
+title: Todo Repository — Acceptance
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  deliverables:
+    - kind: test_file
+      path: test/repository.test.ts
+      framework: bun:test
+      cases:
+        - "create returns a Todo with completed=false and a non-empty id"
+        - "list() returns rows in created_at ASC order"
+        - "list({ filter: 'active' }) excludes completed rows"
+        - "list({ filter: 'completed' }) excludes active rows"
+        - "get(missing_id) returns null"
+        - "update advances updated_at by at least 1 ms"
+        - "update with no fields returns the current row unchanged (except possibly updated_at)"
+        - "remove(missing_id) returns false"
+        - "deleteCompleted twice in a row removes once then is a no-op"
+        - "toggleAll(true) flips only the active todos and returns their count"
+        - "title='   ' (whitespace only) → ValidationError on create"
+    - kind: migration_file
+      path: src/migrations/001_create_todos.sql
+      content_reference: kizo:web.todomvc.todo_management.todo_repository.todo_schema
+  runtime_invariants:
+    - "after any successful create/update, get(id) returns the same row"
+    - "row count never goes negative"
+  verifier:
+    command: "bun test test/repository.test.ts"
+    expect: "all tests pass; exit code 0"
+---
+id: kizo:web.todomvc.todo_management.todo_repository.spec.prompt
+stratum: spec
+spec_kind: prompt
+title: Todo Repository — Generation Prompt
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  context_bundle:
+    - kizo:web.todomvc                                                        # System parameters
+    - kizo:web.todomvc.todo_management                                        # Capability
+    - kizo:web.todomvc.todo_management.todo_repository                        # Component
+    - kizo:web.todomvc.todo_management.todo_repository.todo_schema            # DDL Interaction
+    - kizo:web.todomvc.todo_management.todo_repository.spec.functional
+    - kizo:web.todomvc.todo_management.todo_repository.spec.technical
+    - kizo:web.todomvc.todo_management.todo_repository.spec.schema
+    - kizo:web.todomvc.todo_management.todo_repository.spec.business_rule
+    - kizo:web.todomvc.todo_management.todo_repository.spec.acceptance
+    - pkg:generic/bun@1.1
+    - pkg:npm/ulid
+  outputs:
+    - path: src/db.ts
+      description: Opens the bun:sqlite connection, applies PRAGMAs, runs migrations idempotently, exports `db`.
+    - path: src/repository.ts
+      description: Exports class TodoRepository(db) implementing every method in spec.functional.
+    - path: src/migrations/001_create_todos.sql
+      description: The DDL from the todo_schema Interaction.
+    - path: test/repository.test.ts
+      description: bun:test suite covering every case in spec.acceptance.deliverables[0].cases.
+  prompt_template: |
+    You are generating the persistence layer of a TodoMVC clone.
+    Read the bundled context files in order. Implement every method
+    declared in spec.functional with the technical guidance in
+    spec.technical and the rules in spec.business_rule. Produce the
+    exact files listed in `outputs`. Then run the verifier command
+    and ensure it passes.
+
+    HARD CONSTRAINTS:
+    - Use bun:sqlite, NOT better-sqlite3 or sqlite3.
+    - Apply the PRAGMAs at connection open time, before any query.
+    - Generate timestamps in JS (toISOString()), not in SQL.
+    - Treat get/update/delete on a missing id as null/false (NOT throws).
+    - Treat empty-title creates/updates as ValidationError (throws).
+  verifier:
+    command: "bun test test/repository.test.ts && bun build --target bun src/repository.ts > /dev/null"
+    expect: "all tests pass and build succeeds with no errors"

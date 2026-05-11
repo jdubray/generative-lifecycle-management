@@ -1,0 +1,51 @@
+$schema: https://puffin.dev/glm/v1/sekkei.schema.json
+id: kizo:web.todomvc.todo_management
+stratum: capability
+title: Todo Management
+description: |
+  Backend ownership of the todo data model and the operations against it.
+  The full lifecycle of a todo (create, read, update, complete, delete,
+  filter, toggle-all, clear-completed) lives here. Persistence is
+  SQLite-WAL; the surface is a small REST API consumed by the Web UI.
+
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+
+parameters:
+  - name: max_title_length
+    schema: { type: integer, minimum: 1, maximum: 1000 }
+    default: 200
+    binding_scope: capability
+  - name: trim_input
+    schema: { type: boolean }
+    default: true
+    binding_scope: capability
+  - name: reject_empty_after_trim
+    schema: { type: boolean }
+    default: true
+    binding_scope: capability
+
+constraints:
+  - kind: invariant
+    expression: "todo.title.length > 0 AFTER trim"
+    severity: error
+  - kind: invariant
+    expression: "todo.completed in [true, false]"
+    severity: error
+  - kind: invariant
+    expression: "filter_value in ['all','active','completed']"
+    severity: error
+
+relationships:
+  - kind: composes-of
+    target: kizo:web.todomvc.todo_management.todo_repository
+  - kind: composes-of
+    target: kizo:web.todomvc.todo_management.todo_filter_engine
+  - kind: composes-of
+    target: kizo:web.todomvc.todo_management.todo_rest_api
+
+body:
+  user_value: |
+    Todos created by the user persist across browser refreshes and across
+    devices (since the source of truth is the backend). Filtering by status
+    is server-driven and consistent with the URL state.

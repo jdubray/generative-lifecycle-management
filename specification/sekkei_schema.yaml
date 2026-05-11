@@ -1,0 +1,296 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Sekkei node schema — informative form (v1.1, post-validation)
+#
+# Status:    informative; the normative form is JSON Schema in
+#            specification/sekkei.schema.json.
+# Provenance: derived from §C of the GLM specification, refined by reverse-
+#            engineering the BaanBaan POS into kizo:food.fullservicerestaurant
+#            and forward-designing kizo:web.todomvc as a methodology validator.
+# Changes from v1.0 (the §C.8 draft):
+#   v1.1.1  spec_kind moved to TOP LEVEL on spec nodes (was nested under body).
+#   v1.1.2  System recursion permitted (§C.1 amendment): a System may compose
+#           Sub-Systems, which are themselves stratum=system.
+#   v1.1.3  body shapes per spec_kind formalized (deliverables+verifier for
+#           acceptance, context_bundle+outputs+verifier for prompt, etc.).
+#   v1.1.4  realization_file / realization_files / realization_notes added on
+#           Component and Interaction bodies.
+#   v1.1.5  runtime enum extended with `in_browser` and `in_process_and_in_browser`.
+#   v1.1.6  Interaction.body.contract_definition spec'd for FSM, including the
+#           manual-NAP-wiring pattern observed in sam-fsm realizations.
+#   v1.1.7  composes-of attributes formalized: find_number, binding, signal.
+#   v1.1.8  inspection_assertions retained but downgraded to legacy back-compat;
+#           load-bearing verifier hooks live in spec.acceptance.body.verifier.
+# ─────────────────────────────────────────────────────────────────────────────
+
+$schema: https://puffin.dev/glm/v1/sekkei.schema.json
+schema_version: "1.1"
+
+# ============================================================================
+# 1. Common envelope — every node carries these regardless of stratum
+# ============================================================================
+SekkeiNode:
+  id: string                              # slugified URI, globally unique
+                                          # form: kizo:<sector>.<system>[.<sub-path>]
+                                          # rule: parent-id MUST be a strict prefix of child-id
+  stratum: enum[system, capability, component, interaction, spec]
+  title: string                           # human-readable display name
+  description: string                     # markdown narrative, may be multi-paragraph
+  content_hash: string                    # sha256 over canonical body + dep closure
+                                          # COMPUTED at evaluation time; NOT stored in source
+
+  revision:
+    major: string                         # A..Z (Y14.35: skip I/O/Q/S/X/Z)
+    iteration: integer                    # default 0; increments on each in-work edit
+    status: enum[in_work, in_review, released, superseded, obsolete]
+
+  provenance:
+    derives_from:                         # null if net-new
+      id: string
+      content_hash: string
+    override_kind: enum[as_is, with_override, extend, net_new]
+    authored_by: string                   # agent or person
+    authored_at: datetime                 # ISO-8601
+    generator_identity:                   # ONLY on nodes produced by a generator
+      llm: string                         # e.g. claude-opus-4-1@2026-04
+      prompt_version: string              # content hash of prompt used
+      tool_chain: string                  # content hash of generator binary
+
+  parameters:                             # JSON-Schema-typed configuration points
+    - name: string
+      schema: jsonschema                  # the parameter type
+      default: any
+      binding_scope: enum[system, capability, component, interaction, spec]
+
+  constraints:
+    - kind: enum[requires, excludes, invariant, acceptance]
+      expression: string                  # CEL-like predicate
+      severity: enum[error, warning]
+
+  relationships:                          # see §3 below for kinds + attributes
+    - kind: enum[composes-of, depends-on, derives-from, implements, generates, varies-from]
+      target: string                      # kizo:... id, OR external pkg:/dep:/svc:/hw: PURL
+      attributes: object                  # kind-specific (see §3)
+
+  body: object                            # stratum-specific (see §2 below)
+
+# ============================================================================
+# 2. body shapes per stratum
+# ============================================================================
+
+# ─── 2.1 System body ────────────────────────────────────────────────────────
+# §C.1 amendment permits a System to compose Sub-Systems (also stratum=system).
+SystemBody:
+  dbom_ref: string | null                 # path to dbom.yaml; null at small scale
+  realization_summary: string
+  acceptance_gate: string
+
+# ─── 2.2 Capability body ────────────────────────────────────────────────────
+CapabilityBody:
+  user_value: string                      # the customer-visible promise
+  boundary: string | null
+
+# ─── 2.3 Component body ─────────────────────────────────────────────────────
+ComponentBody:
+  boundary: string                        # OWNS / DOES NOT OWN — must be honest
+  runtime: enum[in_process, sidecar, external_service,
+                in_browser, in_process_and_in_browser]
+  realization_file: string                # path to current realization (single)
+  realization_files: list<string>         # OR multiple files
+  realization_notes: string               # caveats on the realization
+
+# ─── 2.4 Interaction body ───────────────────────────────────────────────────
+InteractionBody:
+  contract_kind: enum[fsm, event_flow, integration_adapter, schema_binding]
+  contract_definition: object             # kind-specific shape (see §2.4.1)
+  realization_file: string
+
+# ─── 2.4.1 FSM contract_definition (read STATES FROM SOURCE — never extrapolate)
+FSMContractDefinition:
+  pc: string                              # name of the prop-control field on the model
+  pc0: string                             # initial pc value
+  states:
+    - id: string                          # MUST match the realization's literal state name
+      terminal: boolean
+      transitions: list<string>           # action names valid from this state
+      note: string | null
+  actions:
+    <ACTION_NAME>: list<string>           # target state(s)
+  naps:                                   # next-action predicates
+    placement: string                     # e.g. "manually wired in component.naps post-init"
+    principal_naps:
+      - state: string
+        fires: string                     # action name
+        when: string                      # precondition expression
+  pos_call_dispatch: string | null
+  reactors:
+    - name: string
+      on: string
+      target: string
+  invariants: list<string>
+
+# ─── 2.5 Spec body — varies by spec_kind (top-level field on spec nodes) ────
+SpecNode:
+  stratum: spec
+  spec_kind: enum[functional, technical, schema, business_rule, acceptance, prompt]
+  body: object                            # shape per spec_kind
+
+# ─── 2.5.1 functional ───────────────────────────────────────────────────────
+FunctionalSpecBody:
+  behaviors:                              # for code modules
+    - id: string
+      signature: string
+      description: string
+      preconditions: list<string>
+      postconditions: list<string>
+  endpoints:                              # alternative shape: HTTP APIs
+    - method: string
+      path: string
+      query: object
+      body: string                        # JSON-shape description
+      success: string
+      errors: list<string>
+  responsibilities: list<string>          # alternative shape: view-shells
+  page_structure: string
+
+# ─── 2.5.2 technical ────────────────────────────────────────────────────────
+TechnicalSpecBody:
+  implementation: object                  # runtime, storage, framework, etc.
+  module_layout: string
+  build: string
+
+# ─── 2.5.3 schema ───────────────────────────────────────────────────────────
+SchemaSpecBody:
+  data_shapes: object                     # JSON Schema for entities
+  shapes: object                          # alternative key, request/response bundles
+  ddl_reference: string                   # id of the DDL Interaction
+
+# ─── 2.5.4 business_rule ────────────────────────────────────────────────────
+BusinessRuleSpecBody:
+  rules:
+    - id: string                          # e.g. BR-API-003
+      rule: string
+      enforcement: string
+
+# ─── 2.5.5 acceptance — DELIVERABLE shape (load-bearing) ────────────────────
+AcceptanceSpecBody:
+  deliverables:
+    - kind: enum[test_file, migration_file, fixture_file, fsm_acceptance]
+      path: string
+      framework: string
+      cases: list<string>
+      content_reference: string | null
+      reference: string | null
+      assertion: string | null
+  runtime_invariants: list<string>
+  verifier:
+    command: string                       # ONE shell line
+    expect: string                        # what success looks like
+
+# ─── 2.5.6 prompt — MACHINE-RUNNABLE TRIPLE (load-bearing) ──────────────────
+PromptSpecBody:
+  context_bundle:
+    - string                              # node ids OR external PURLs
+  outputs:
+    - path: string
+      description: string
+  prompt_template: string
+  verifier:
+    command: string
+    expect: string
+
+# ─── 2.5.7 LEGACY inspection_assertions (back-compat) ───────────────────────
+LegacyAcceptanceSpecBody:
+  inspection_assertions:
+    - id: string
+      kind: enum[unit_test, property, golden, invariant_check]
+      expression: string
+
+# ============================================================================
+# 3. Relationship attributes by kind
+# ============================================================================
+ComposesOfAttributes:
+  find_number: string                     # PLM find-number (e.g. "1.0", "2.3")
+  binding: string                         # how the child is bound
+
+DependsOnAttributes:
+  binding: enum[runtime, build_time, event_subscriber, hardware, library]
+  signal: string                          # for event_subscriber
+  role: string
+  version: string
+  digest: string
+
+DerivesFromAttributes:
+  pinned_revision: string                 # logical-id@major-revision
+  pin_policy: enum[pin_on_release, pin_on_iteration, follow_head]
+
+# ============================================================================
+# 4. Stratum hierarchy (allowed children) — §C.1 amendment included
+# ============================================================================
+AllowedChildren:
+  system:      [system, capability]       # §C.1 amendment: System recursion
+  capability:  [component, interaction, spec]
+  component:   [interaction, spec]
+  interaction: [spec]
+  spec:        []                         # leaf
+
+# ============================================================================
+# 5. File-system layout convention
+# ============================================================================
+FileSystemLayout:
+  root: sekkei.yaml
+  nodes/:
+    systems/:
+      - <subsystem>.yaml
+    capabilities/:
+      - <capability>.yaml
+    components/:
+      - <component>.yaml                  # OR multi-doc bundle
+    interactions/:
+      - <interaction>.yaml
+    specs/:
+      by_component/:                      # ONE FILE PER COMPONENT
+        - <component>_specs.yaml          # all 6 spec_kinds for that Component
+    dependencies/:
+      external_deps.yaml
+  sekkei.lock: pinned (id, major_revision, content_hash) per node
+  verify_sekkei.py: 6-gate verifier (see §6)
+
+# ============================================================================
+# 6. Verification gates
+# ============================================================================
+VerificationGates:
+  - "1. Envelope: every node has id/stratum/title/revision/provenance + valid spec_kind on specs"
+  - "2. Stratum hierarchy: composes-of edges respect AllowedChildren"
+  - "3. Closure: every kizo: target on composes-of/depends-on resolves"
+  - "4. Brief coverage: all required brief-named nodes are present"
+  - "5. Spec coverage: every Component has functional+technical+acceptance+prompt"
+  - "6. Spec quality: acceptance has deliverables+verifier; prompt has context_bundle+outputs+verifier"
+
+# ============================================================================
+# 7. Authoring conventions distilled from BaanBaan + TodoMVC
+# ============================================================================
+AuthoringConventions:
+  brief_naming: |
+    Components are named after WHAT THEY DO ("Payment State Machine",
+    "Inventory Decrement"), not where they live.
+  honest_descriptions: |
+    Every Component body MUST state what it OWNS and what it DOES NOT OWN.
+    Planned-but-unrealized Components carry status: in_work and an explicit
+    "STATUS: PLANNED — NOT IMPLEMENTED" note in the description.
+  fsm_states_read_from_source: |
+    For any Interaction with contract_kind == fsm, the states/actions/NAPs
+    MUST be read from the realization file VERBATIM. Never extrapolate from
+    the domain concept.
+  acceptance_as_deliverables: |
+    spec.acceptance bodies are deliverable specs (files to produce + cases
+    to cover + verifier command), not inspection prose.
+  prompts_as_machine_runnable: |
+    spec.prompt bodies are triples: (context_bundle, outputs, verifier),
+    plus a prompt_template ending with HARD CONSTRAINTS.
+  per_component_spec_files: |
+    Each Component's six spec_kinds live in ONE file at
+    nodes/specs/by_component/<component>_specs.yaml.
+  yaml_safety: |
+    Strings containing { } : ? characters in flow context MUST be quoted.
+    Common offenders: TypeScript optional params ("title?: string"), inline
+    object shapes ("200 + { ok: true }"), URL paths with colons.

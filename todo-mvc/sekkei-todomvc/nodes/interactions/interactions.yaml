@@ -1,0 +1,145 @@
+$schema: https://puffin.dev/glm/v1/sekkei.schema.json
+# ─────────────────────────────────────────────────────────────────────────────
+# INTERACTION BUNDLE — 4 contracts: schema, REST API, edit-mode FSM, hash router
+# ─────────────────────────────────────────────────────────────────────────────
+---
+id: kizo:web.todomvc.todo_management.todo_repository.todo_schema
+stratum: interaction
+title: Todo Schema
+description: |
+  DDL for the single `todos` table. Single-user demo so no merchant_id
+  scoping. Sort order is by `created_at` ASC (oldest first), matching
+  the canonical TodoMVC reference.
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+constraints:
+  - kind: invariant
+    expression: "pragma.journal_mode == 'wal'"
+    severity: error
+  - kind: invariant
+    expression: "pragma.foreign_keys == 1"
+    severity: error
+body:
+  contract_kind: schema_binding
+  contract_definition:
+    pragmas:
+      foreign_keys: ON
+      journal_mode: WAL
+      synchronous:  NORMAL
+    table: todos
+    cols:
+      - "id TEXT PRIMARY KEY                  -- ULID (default) or UUID-v7"
+      - "title TEXT NOT NULL CHECK(length(trim(title)) > 0)"
+      - "completed INTEGER NOT NULL DEFAULT 0 CHECK(completed IN (0,1))"
+      - "created_at TEXT NOT NULL DEFAULT (datetime('now'))"
+      - "updated_at TEXT NOT NULL DEFAULT (datetime('now'))"
+    indexes:
+      - "CREATE INDEX idx_todos_completed ON todos(completed)"
+      - "CREATE INDEX idx_todos_created   ON todos(created_at)"
+  realization_file: src/db.ts (PRAGMA + CREATE TABLE on first open)
+---
+id: kizo:web.todomvc.todo_management.todo_rest_api.rest_api_contract
+stratum: interaction
+title: REST API Contract
+description: |
+  Wire-level contract for the seven backend endpoints the Web UI
+  consumes. JSON over HTTP. All responses include
+  `Content-Type: application/json` (or are 204 No Content for deletes).
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  contract_kind: integration_adapter
+  contract_definition:
+    base_path: /api
+    endpoints:
+      - { method: GET,    path: /todos,                 query: "filter=all|active|completed (optional, default all)", response: "200 [Todo, ...]" }
+      - { method: POST,   path: /todos,                 body: "{ title: string }",                                    response: "201 Todo  | 422 { error: 'empty_title' } | 400 { error: 'invalid_body' }" }
+      - { method: PATCH,  path: /todos/:id,             body: "{ title?: string, completed?: boolean }",              response: "200 Todo  | 404 { error: 'not_found' } | 422 { error: 'empty_title' } | 400 { error: 'invalid_body' }" }
+      - { method: DELETE, path: /todos/:id,                                                                            response: "204     | 404 { error: 'not_found' }" }
+      - { method: POST,   path: /todos/toggle-all,      body: "{ completed: boolean }",                                response: "200 [Todo, ...] (all todos with new state)" }
+      - { method: DELETE, path: /todos/completed,                                                                      response: "204     (always succeeds; no-op if zero completed)" }
+      - { method: GET,    path: /healthz,                                                                              response: "200 { ok: true }" }
+
+    todo_response_schema:
+      "$id": "todo.v1"
+      type: object
+      required: [id, title, completed, created_at, updated_at]
+      properties:
+        id:         { type: string }
+        title:      { type: string }
+        completed:  { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    cors:
+      allow_origin: "{cors_origin parameter}"
+      allow_methods: [GET, POST, PATCH, DELETE]
+      allow_headers: [Content-Type]
+
+    error_taxonomy:
+      400: invalid_body | invalid_filter
+      404: not_found
+      422: empty_title
+
+  realization_file: src/routes/todos.ts
+---
+id: kizo:web.todomvc.web_ui.todo_list_view.edit_mode_fsm
+stratum: interaction
+title: Edit Mode FSM
+description: |
+  Per-list-item small FSM driving the double-click-to-edit behavior.
+  Three states: VIEWING (default), EDITING (label replaced by input,
+  input focused with current text), DELETED (item removed via the
+  empty-save path). Transitions are local to one item; multiple items
+  can be in EDITING simultaneously (though TodoMVC convention shows
+  single-item edit at a time).
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  contract_kind: fsm
+  contract_definition:
+    states:
+      - { id: VIEWING,  terminal: false }
+      - { id: EDITING,  terminal: false, on_enter: "focus input, place cursor at end" }
+      - { id: DELETED,  terminal: true }
+    actions:
+      - DOUBLE_CLICK_LABEL    # → EDITING
+      - PRESS_ENTER           # save and return to VIEWING (or DELETED if empty)
+      - BLUR_INPUT            # save and return to VIEWING (or DELETED if empty)
+      - PRESS_ESCAPE          # discard and return to VIEWING
+      - DELETE_BUTTON_CLICK   # → DELETED (without going through EDITING)
+    transitions:
+      - { from: VIEWING, on: DOUBLE_CLICK_LABEL,  to: EDITING,  side_effect: "snapshot original_title for Escape rollback" }
+      - { from: VIEWING, on: DELETE_BUTTON_CLICK, to: DELETED,  side_effect: "DELETE /api/todos/:id" }
+      - { from: EDITING, on: PRESS_ENTER,         to: "VIEWING|DELETED", guard: "trim(input).length > 0 ? VIEWING : DELETED", side_effect: "PATCH or DELETE" }
+      - { from: EDITING, on: BLUR_INPUT,          to: "VIEWING|DELETED", guard: "trim(input).length > 0 ? VIEWING : DELETED", side_effect: "PATCH or DELETE" }
+      - { from: EDITING, on: PRESS_ESCAPE,        to: VIEWING,  side_effect: "restore original_title; no API call" }
+    invariants:
+      - "EDITING state must focus the input element on entry"
+      - "Escape NEVER calls the API"
+      - "Empty title after trim ALWAYS routes to DELETED, not VIEWING"
+  realization_file: public/js/edit-mode-fsm.js
+---
+id: kizo:web.todomvc.web_ui.todo_filter_router.url_hash_event_flow
+stratum: interaction
+title: URL Hash Event Flow
+description: |
+  hashchange-event-driven contract for filter routing. Three valid
+  hash values; anything else falls back to `#/` (and the URL is
+  rewritten via `history.replaceState` to make the address bar honest).
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  contract_kind: event_flow
+  contract_definition:
+    listener: "window.addEventListener('hashchange', onHashChange)"
+    initial_dispatch: "onHashChange() called once on DOMContentLoaded"
+    hash_to_filter:
+      "#/":           all
+      "#/active":     active
+      "#/completed":  completed
+      "(other)":      "{ filter: 'all', side_effect: 'history.replaceState(null, \"\", \"#/\")' }"
+    consumers:
+      - kizo:web.todomvc.web_ui.footer_view       # for highlighting selected link
+      - kizo:web.todomvc.web_ui.todo_list_view    # for rendering filter
+  realization_file: public/js/filter-router.js

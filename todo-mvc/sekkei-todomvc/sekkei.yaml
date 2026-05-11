@@ -1,0 +1,109 @@
+$schema: https://puffin.dev/glm/v1/sekkei.schema.json
+# ─────────────────────────────────────────────────────────────────────────────
+# ROOT SYSTEM — kizo:web.todomvc @ A.0
+#
+# Validation case for the GLM methodology. Goal: take this sekkei as input to
+# the Generation Pipeline and produce a working TodoMVC clone with a Bun
+# backend, faithful enough to pass the canonical TodoMVC behavioral tests
+# (https://demo.playwright.dev/todomvc/#/ is the reference).
+#
+# Differs from the live demo in one important way: persistence is a Bun +
+# SQLite-WAL backend served over a small REST API, not browser localStorage.
+# The frontend HTML/CSS surface is otherwise indistinguishable.
+#
+# Scale: 1 System, 2 Capabilities, 8 Components, 4 Interactions, ~50 Specs.
+# Authored after the BaanBaan sekkei lessons:
+#   • Read the spec verbatim — do not extrapolate
+#   • Honest descriptions of inline vs dedicated services
+#   • Per-Component spec files (specs/by_component/)
+#   • Acceptance specs as DELIVERABLES + INVARIANTS
+#   • Prompts as machine-runnable (context_bundle + outputs + verifier)
+# ─────────────────────────────────────────────────────────────────────────────
+
+id: kizo:web.todomvc
+stratum: system
+title: Kizō Web — TodoMVC (Bun-backed)
+description: |
+  A canonical TodoMVC implementation with a small Bun + Hono + SQLite-WAL
+  backend. Single-user (no auth — direct demo). The frontend follows the
+  TodoMVC reference behavior at https://demo.playwright.dev/todomvc/ with
+  one substitution: persistence is a backend REST API instead of browser
+  localStorage. Cross-tab consistency follows from the shared backend.
+
+  Purpose of this sekkei: validate the GLM methodology at small scale.
+  The brief is "minimal viable TodoMVC + persistent backend, regenerable
+  from this sekkei alone." Success criterion: an LLM given this sekkei +
+  the dependency closure produces a system that satisfies the
+  Inspection Assertions in every spec_acceptance.
+
+revision:
+  major: A
+  iteration: 0
+  status: in_review
+
+provenance:
+  derives_from: null
+  override_kind: net_new
+  authored_by: glm-sekkei-validator@A.0
+  authored_at: 2026-05-10T00:00:00Z
+
+parameters:
+  - name: server_port
+    schema: { type: integer, minimum: 1024, maximum: 65535 }
+    default: 3000
+    binding_scope: system
+  - name: database_path
+    schema: { type: string }
+    default: ./data/todomvc.db
+    binding_scope: system
+  - name: hono_logger_enabled
+    schema: { type: boolean }
+    default: true
+    binding_scope: system
+  - name: cors_origin
+    schema: { type: string }
+    default: "*"
+    binding_scope: system
+    # Single-process local-only demo; * is acceptable.
+
+constraints:
+  - kind: invariant
+    expression: "single_user == true"
+    severity: error
+    # No auth, no merchant_id, no per-user scoping.
+  - kind: invariant
+    expression: "money.is_present == false"
+    severity: error
+    # No money — todos have no price.
+  - kind: invariant
+    expression: "persistence == sqlite_wal"
+    severity: error
+
+relationships:
+  - kind: composes-of
+    target: kizo:web.todomvc.todo_management
+    attributes: { find_number: "1.0" }
+  - kind: composes-of
+    target: kizo:web.todomvc.web_ui
+    attributes: { find_number: "2.0" }
+
+  - kind: depends-on
+    target: pkg:generic/bun@1.1
+    attributes: { role: runtime }
+  - kind: depends-on
+    target: pkg:npm/hono@4
+    attributes: { role: http_framework }
+
+body:
+  dbom_ref: null   # No dBOM at this scale. Single host, single port, single SQLite file.
+
+  realization_summary: |
+    Single Bun process. Hono router. bun:sqlite (WAL). Static frontend
+    served from /public. REST API at /api/todos. ~400 LOC backend +
+    ~300 LOC frontend (HTML/CSS/JS) when realized.
+
+  acceptance_gate: |
+    Regenerating from this sekkei must produce a system that:
+      1. Passes the spec_acceptance deliverables in every Component
+      2. The Playwright demo's behavioral tests pass against it
+         (per-test mapping documented in spec_acceptance for each Component)

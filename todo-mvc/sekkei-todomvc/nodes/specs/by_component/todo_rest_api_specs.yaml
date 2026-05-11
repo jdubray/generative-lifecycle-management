@@ -1,0 +1,249 @@
+$schema: https://puffin.dev/glm/v1/sekkei.schema.json
+# ─────────────────────────────────────────────────────────────────────────────
+# SPECS — todo_rest_api
+# 6 spec leaves: functional, technical, schema (API), business_rule, acceptance, prompt
+# ─────────────────────────────────────────────────────────────────────────────
+---
+id: kizo:web.todomvc.todo_management.todo_rest_api.spec.functional
+stratum: spec
+spec_kind: functional
+title: Todo REST API — Functional
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  endpoints:
+    - method: GET
+      path: /api/todos
+      query: { filter: "all|active|completed (optional, default all)" }
+      success: 200 + Todo[]
+      errors:
+        - "400 if filter has any value other than the three allowed"
+    - method: POST
+      path: /api/todos
+      body: { title: string }
+      success: 201 + Todo
+      errors:
+        - "400 if body is not JSON or title is missing"
+        - "422 if title is empty after trim"
+    - method: PATCH
+      path: /api/todos/:id
+      body: "{ title?: string, completed?: boolean }"
+      success: 200 + Todo
+      errors:
+        - "400 if body invalid (neither field present, or wrong types)"
+        - "404 if id not found"
+        - "422 if title is supplied and empty after trim"
+    - method: DELETE
+      path: /api/todos/:id
+      success: 204 (no body)
+      errors:
+        - "404 if id not found"
+    - method: POST
+      path: /api/todos/toggle-all
+      body: "{ completed: boolean }"
+      success: "200 + { changed: number }"
+      errors:
+        - "400 if body.completed is not boolean"
+    - method: DELETE
+      path: /api/todos/completed
+      success: "200 + { removed: number }"
+      errors: []
+    - method: GET
+      path: /healthz
+      success: "200 + { ok: true }"
+      errors: []
+  cross_cutting:
+    - "All responses are application/json (except 204 which has no body)"
+    - "All requests with a body MUST send Content-Type: application/json"
+    - "PATCH semantics: omitted fields are not changed"
+---
+id: kizo:web.todomvc.todo_management.todo_rest_api.spec.technical
+stratum: spec
+spec_kind: technical
+title: Todo REST API — Technical
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  framework: Hono v4
+  bootstrap_layout: |
+    src/server.ts
+      - import { Hono } from 'hono'
+      - import { cors } from 'hono/cors'
+      - import { logger } from 'hono/logger'
+      - mount routes from src/routes/todos.ts and src/routes/health.ts
+      - Bun.serve({ port: server_port, fetch: app.fetch })
+  middleware:
+    - "cors({ origin: cors_origin })"   # System parameter, default '*'
+    - "logger() if request_logging is true"
+    - "JSON body parser is built-in to Hono via c.req.json()"
+  validation: |
+    Request bodies are validated with zod schemas defined in
+    src/routes/schemas.ts. Each route uses the @hono/zod-validator
+    middleware OR an inline `.parse()` with try/catch translating
+    ZodError → 400 with { error: 'invalid_request', issues: [...] }.
+  error_translation:
+    ValidationError (from repo, e.g. empty title):  422
+    ConflictError (id collision):                    409
+    NotFound (null/false from repo):                 404
+    JSON parse failure:                              400
+    ZodError:                                        400
+    unhandled:                                       500 + log
+  static_serving: |
+    `/` and `/css/...`, `/js/...` are served from ./public via
+    Hono's serveStatic helper. Falls back to index.html for any
+    non-API non-asset path so hash-based client routing works.
+  module_layout: |
+    src/server.ts          (entry point — wires everything)
+    src/routes/todos.ts    (the seven /api/todos endpoints)
+    src/routes/health.ts   (/healthz)
+    src/routes/schemas.ts  (zod request/response schemas)
+    src/routes/static.ts   (serveStatic + SPA fallback)
+---
+id: kizo:web.todomvc.todo_management.todo_rest_api.spec.schema
+stratum: spec
+spec_kind: schema
+title: Todo REST API — Schema (Request / Response shapes)
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  contract_reference: kizo:web.todomvc.todo_management.todo_rest_api.rest_api_contract
+  shapes:
+    CreateTodoRequest:
+      type: object
+      properties: { title: { type: string, minLength: 1 } }
+      required: [title]
+      additionalProperties: false
+    PatchTodoRequest:
+      type: object
+      properties:
+        title: { type: string, minLength: 1 }
+        completed: { type: boolean }
+      anyOf:
+        - { required: [title] }
+        - { required: [completed] }
+      additionalProperties: false
+    ToggleAllRequest:
+      type: object
+      properties: { completed: { type: boolean } }
+      required: [completed]
+      additionalProperties: false
+    TodoResponse:
+      $ref: kizo:web.todomvc.todo_management.todo_repository.spec.schema#/body/data_shapes/Todo
+    ErrorResponse:
+      type: object
+      properties:
+        error: { type: string, enum: [invalid_request, not_found, conflict, validation_failed, internal_error] }
+        message: { type: string }
+        issues: { type: array, items: { type: object } }
+      required: [error, message]
+---
+id: kizo:web.todomvc.todo_management.todo_rest_api.spec.business_rule
+stratum: spec
+spec_kind: business_rule
+title: Todo REST API — Business Rules
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  rules:
+    - id: BR-API-001
+      rule: "Filter validation lives in the API layer — the repository assumes its `filter` arg is already valid."
+      enforcement: API rejects unknown filter with 400 BEFORE calling repository
+    - id: BR-API-002
+      rule: "PATCH MUST NOT accept a body that has neither `title` nor `completed`."
+      enforcement: zod schema with anyOf
+    - id: BR-API-003
+      rule: "DELETE on a missing id is 404, NOT 204."
+      enforcement: route reads removeReturned and translates false → 404
+    - id: BR-API-004
+      rule: "API NEVER returns the SQLite INTEGER form of `completed`; it MUST coerce to boolean."
+      enforcement: serializer in route or repository boundary; acceptance test inspects JSON
+    - id: BR-API-005
+      rule: "The JSON shape returned by GET, POST, PATCH MUST be identical (a Todo)."
+      enforcement: shared serialize() function used by all three routes
+    - id: BR-API-006
+      rule: "DELETE /api/todos/completed is idempotent and returns { removed: 0 } when nothing matched."
+      enforcement: route always returns 200; never 404
+---
+id: kizo:web.todomvc.todo_management.todo_rest_api.spec.acceptance
+stratum: spec
+spec_kind: acceptance
+title: Todo REST API — Acceptance
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  deliverables:
+    - kind: test_file
+      path: test/api.test.ts
+      framework: bun:test (using fetch against app.request(...))
+      cases:
+        - "GET /api/todos on empty db returns []"
+        - "POST /api/todos with { title: 'buy milk' } returns 201 + Todo with completed=false"
+        - "POST /api/todos with { title: '   ' } returns 422"
+        - "POST /api/todos with malformed JSON returns 400"
+        - "POST /api/todos missing title returns 400"
+        - "GET /api/todos?filter=active excludes completed"
+        - "GET /api/todos?filter=bogus returns 400"
+        - "PATCH /api/todos/:id with { completed: true } updates and returns the Todo"
+        - "PATCH /api/todos/:id with empty body returns 400"
+        - "PATCH /api/todos/missing returns 404"
+        - "DELETE /api/todos/:id returns 204 on success"
+        - "DELETE /api/todos/missing returns 404"
+        - "POST /api/todos/toggle-all { completed: true } flips remaining actives, returns { changed: N }"
+        - "DELETE /api/todos/completed returns { removed: N }"
+        - "GET /healthz returns { ok: true }"
+        - "Every Todo in any successful JSON body has completed as boolean (not 0/1)"
+  runtime_invariants:
+    - "Every successful 2xx response with a body is valid JSON"
+    - "200/201 responses match TodoResponse or { changed:number } / { removed:number } shape"
+    - "4xx and 5xx responses match ErrorResponse shape"
+  verifier:
+    command: "bun test test/api.test.ts"
+    expect: "all tests pass; exit code 0"
+---
+id: kizo:web.todomvc.todo_management.todo_rest_api.spec.prompt
+stratum: spec
+spec_kind: prompt
+title: Todo REST API — Generation Prompt
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  context_bundle:
+    - kizo:web.todomvc                                                            # System parameters
+    - kizo:web.todomvc.todo_management
+    - kizo:web.todomvc.todo_management.todo_rest_api
+    - kizo:web.todomvc.todo_management.todo_rest_api.rest_api_contract
+    - kizo:web.todomvc.todo_management.todo_rest_api.spec.functional
+    - kizo:web.todomvc.todo_management.todo_rest_api.spec.technical
+    - kizo:web.todomvc.todo_management.todo_rest_api.spec.schema
+    - kizo:web.todomvc.todo_management.todo_rest_api.spec.business_rule
+    - kizo:web.todomvc.todo_management.todo_rest_api.spec.acceptance
+    - kizo:web.todomvc.todo_management.todo_repository.spec.functional         # method names called
+    - kizo:web.todomvc.todo_management.todo_filter_engine.spec.functional       # filter() signature
+    - pkg:npm/hono@4
+    - pkg:npm/zod
+  outputs:
+    - path: src/server.ts
+    - path: src/routes/todos.ts
+    - path: src/routes/health.ts
+    - path: src/routes/schemas.ts
+    - path: src/routes/static.ts
+    - path: test/api.test.ts
+  prompt_template: |
+    Implement the REST API and HTTP server for the TodoMVC backend.
+    The repository and filter engine are already implemented and
+    importable from src/repository.ts and src/filter.ts. Wire them
+    behind the seven endpoints in spec.functional. Apply the error
+    translation table in spec.technical. Reuse the zod schemas from
+    spec.schema for request validation.
+
+    HARD CONSTRAINTS:
+    - Use Hono v4 syntax (not Express).
+    - Coerce `completed` to boolean before sending JSON — never 0/1.
+    - PATCH with empty body is 400, NOT 200.
+    - DELETE on missing id is 404, NOT 204.
+    - Return 422 (not 400) when title is empty AFTER trim.
+    - Static serving falls back to index.html so the SPA hash routing works.
+  verifier:
+    command: "bun test test/api.test.ts"
+    expect: "all tests pass; exit code 0"
+t code 0"

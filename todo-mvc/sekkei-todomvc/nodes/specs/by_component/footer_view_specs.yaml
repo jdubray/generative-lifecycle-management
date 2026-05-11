@@ -1,0 +1,157 @@
+$schema: https://puffin.dev/glm/v1/sekkei.schema.json
+# ─────────────────────────────────────────────────────────────────────────────
+# SPECS — footer_view
+# 5 spec leaves: functional, technical, business_rule, acceptance, prompt
+# ─────────────────────────────────────────────────────────────────────────────
+---
+id: kizo:web.todomvc.web_ui.footer_view.spec.functional
+stratum: spec
+spec_kind: functional
+title: Footer View — Functional
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  behaviors:
+    - id: render
+      signature: "render(): void"
+      description: |
+        Reads store.todos and store.filter, then writes the footer.footer
+        DOM. Three children always rendered (when footer is visible):
+          1. <span class="todo-count"><strong>N</strong> item(s) left</span>
+          2. <ul class="filters"> with three <li><a> links
+          3. <button class="clear-completed">Clear completed</button>
+        Footer itself is hidden (via display:none or removeChildren) when
+        store.todos.length === 0.
+        clear-completed button is hidden when no todo is completed.
+    - id: handleClearCompleted
+      signature: "(): void"
+      description: |
+        DELETE /api/todos/completed. On 200, remove every completed
+        todo from store.todos in place; render(). On error, banner.
+    - id: filter_links
+      description: |
+        Three anchors with href attributes:
+          All       → href="#/"
+          Active    → href="#/active"
+          Completed → href="#/completed"
+        The selected one has class="selected". Selection is derived
+        from store.filter; the click itself is handled by browser
+        default behavior (changes URL hash) and the hashchange event
+        is picked up by todo_filter_router.
+---
+id: kizo:web.todomvc.web_ui.footer_view.spec.technical
+stratum: spec
+spec_kind: technical
+title: Footer View — Technical
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  module: public/js/footer-view.js
+  exports: "default function init({store, render})"
+  selectors_owned:
+    - "footer.footer"
+    - "span.todo-count"
+    - "ul.filters"
+    - "ul.filters > li > a"
+    - "button.clear-completed"
+  no_event_listener_for_filter_links: |
+    Filter <a> elements are plain anchors with href="#/...". Clicking
+    them changes window.location.hash; the change is observed by
+    todo_filter_router which updates store.filter and triggers
+    render(). Footer DOES NOT install click handlers on these.
+  click_listener: "single click listener on button.clear-completed"
+  count_label_logic: |
+    active = countActive(store.todos)   // from filter engine
+    label  = active === 1
+      ? `<strong>1</strong> ${counter_singular_label}`
+      : `<strong>${active}</strong> ${counter_singular_label.replace(/ left$/, '')}s left`
+    where counter_singular_label is the web_ui Capability parameter
+    (default "item left").
+---
+id: kizo:web.todomvc.web_ui.footer_view.spec.business_rule
+stratum: spec
+spec_kind: business_rule
+title: Footer View — Business Rules
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  rules:
+    - id: BR-FOOTER-001
+      rule: "Footer MUST be hidden when there are zero todos."
+      enforcement: visibility check on every render
+    - id: BR-FOOTER-002
+      rule: "todo-count uses singular 'item' iff active count is 1."
+      enforcement: branch in count_label_logic
+    - id: BR-FOOTER-003
+      rule: "clear-completed MUST be hidden when no todo is completed."
+      enforcement: visibility derived from store.todos.some(t => t.completed)
+    - id: BR-FOOTER-004
+      rule: "Exactly one filter link has class='selected' at any time."
+      enforcement: render assigns class based on store.filter
+    - id: BR-FOOTER-005
+      rule: "Footer-internal clicks (anything except clear-completed) MUST NOT call any HTTP API directly."
+      enforcement: only one click listener installed, scoped to button.clear-completed
+---
+id: kizo:web.todomvc.web_ui.footer_view.spec.acceptance
+stratum: spec
+spec_kind: acceptance
+title: Footer View — Acceptance
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  deliverables:
+    - kind: test_file
+      path: test/e2e/footer.spec.ts
+      framework: playwright
+      cases:
+        - "Empty list → footer.footer is not visible"
+        - "Add 1 todo → todo-count text is '1 item left'"
+        - "Add 2 todos → todo-count text is '2 items left'"
+        - "Toggle 1 of 2 → todo-count text is '1 item left'"
+        - "Toggle all → todo-count text is '0 items left' AND clear-completed is visible"
+        - "Click clear-completed → todos with completed=true are removed; footer itself hides if list now empty"
+        - "Click 'Active' link → URL hash becomes '#/active' AND that link gains class 'selected'"
+        - "Click 'Completed' link → URL hash becomes '#/completed' AND that link gains class 'selected'"
+        - "Click 'All' link → URL hash becomes '#/' AND that link gains class 'selected'"
+        - "Only ONE filter link has class='selected' at any time"
+  runtime_invariants:
+    - "footer.footer.visible <=> store.todos.length > 0"
+    - "button.clear-completed.visible <=> store.todos.some(t => t.completed)"
+  verifier:
+    command: "bunx playwright test test/e2e/footer.spec.ts"
+    expect: "all tests pass; exit code 0"
+---
+id: kizo:web.todomvc.web_ui.footer_view.spec.prompt
+stratum: spec
+spec_kind: prompt
+title: Footer View — Generation Prompt
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  context_bundle:
+    - kizo:web.todomvc.web_ui                                    # counter_singular_label, hash_routes
+    - kizo:web.todomvc.web_ui.footer_view
+    - kizo:web.todomvc.web_ui.footer_view.spec.functional
+    - kizo:web.todomvc.web_ui.footer_view.spec.technical
+    - kizo:web.todomvc.web_ui.footer_view.spec.business_rule
+    - kizo:web.todomvc.web_ui.footer_view.spec.acceptance
+    - kizo:web.todomvc.web_ui.todo_pwa_shell.spec.schema        # selectors
+    - kizo:web.todomvc.todo_management.todo_filter_engine.spec.functional
+    - kizo:web.todomvc.todo_management.todo_rest_api.spec.functional
+  outputs:
+    - path: public/js/footer-view.js
+    - path: test/e2e/footer.spec.ts
+  prompt_template: |
+    Implement the footer view. Default-export init({store, render}).
+    Render the three children per spec.functional. Hide footer when
+    list is empty. Hide clear-completed when no todo is completed.
+    Apply class='selected' to the link matching store.filter.
+
+    HARD CONSTRAINTS:
+    - DO NOT install click listeners on the filter <a> elements;
+      they are plain anchors, the router observes hashchange.
+    - DO NOT call DELETE /api/todos/completed unless the user actually clicks the button.
+    - Use singular 'item' iff active count is 1.
+  verifier:
+    command: "bunx playwright test test/e2e/footer.spec.ts"
+    expect: "all tests pass; exit code 0"

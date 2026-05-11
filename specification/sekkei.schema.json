@@ -1,0 +1,689 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://puffin.dev/glm/v1/sekkei.schema.json",
+  "title": "Sekkei Node Schema (v1.1)",
+  "description": "Normative JSON Schema for a sekkei node. Companion document: specification/sekkei_schema.yaml (informative) and specification/sekkei_specification.md (narrative).",
+  "$defs": {
+    "stratum": {
+      "type": "string",
+      "enum": [
+        "system",
+        "capability",
+        "component",
+        "interaction",
+        "spec"
+      ]
+    },
+    "kizoId": {
+      "type": "string",
+      "pattern": "^kizo:[a-z0-9_]+(\\.[a-z0-9_]+)*$",
+      "description": "Slugified URI identifier; logical id, globally unique within a sekkei graph."
+    },
+    "externalRef": {
+      "type": "string",
+      "pattern": "^(pkg|dep|svc|hw):.+$",
+      "description": "Package URL or other external reference for depends-on targets."
+    },
+    "isoDateTime": {
+      "description": "ISO-8601 date-time. In JSON the canonical form is a string with format date-time; YAML loaders that produce a native datetime object are also accepted because YAML's serialization of a datetime back to JSON yields the canonical string form.",
+      "oneOf": [
+        {
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "type": "object"
+        }
+      ]
+    },
+    "majorRevision": {
+      "type": "string",
+      "pattern": "^[A-HJ-NPRTUV-WY]$",
+      "description": "ASME Y14.35 letter convention: A..Z skipping I, O, Q, S, X, Z."
+    },
+    "revision": {
+      "type": "object",
+      "required": [
+        "major",
+        "iteration",
+        "status"
+      ],
+      "properties": {
+        "major": {
+          "$ref": "#/$defs/majorRevision"
+        },
+        "iteration": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "in_work",
+            "in_review",
+            "released",
+            "superseded",
+            "obsolete"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "provenance": {
+      "type": "object",
+      "required": [
+        "override_kind",
+        "authored_by",
+        "authored_at"
+      ],
+      "properties": {
+        "derives_from": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "id",
+                "content_hash"
+              ],
+              "properties": {
+                "id": {
+                  "$ref": "#/$defs/kizoId"
+                },
+                "content_hash": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "override_kind": {
+          "type": "string",
+          "enum": [
+            "as_is",
+            "with_override",
+            "extend",
+            "net_new"
+          ]
+        },
+        "authored_by": {
+          "type": "string"
+        },
+        "authored_at": {
+          "$ref": "#/$defs/isoDateTime"
+        },
+        "generator_identity": {
+          "type": "object",
+          "required": [
+            "llm",
+            "prompt_version",
+            "tool_chain"
+          ],
+          "properties": {
+            "llm": {
+              "type": "string"
+            },
+            "prompt_version": {
+              "type": "string"
+            },
+            "tool_chain": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "parameter": {
+      "type": "object",
+      "required": [
+        "name",
+        "schema",
+        "binding_scope"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "schema": {
+          "type": "object",
+          "description": "JSON Schema fragment for the parameter type"
+        },
+        "default": {
+          "description": "Default value matching `schema`"
+        },
+        "binding_scope": {
+          "type": "string",
+          "enum": [
+            "system",
+            "capability",
+            "component",
+            "interaction",
+            "spec"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "constraint": {
+      "type": "object",
+      "required": [
+        "kind",
+        "expression",
+        "severity"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "requires",
+            "excludes",
+            "invariant",
+            "acceptance"
+          ]
+        },
+        "expression": {
+          "type": "string"
+        },
+        "severity": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "relationship": {
+      "type": "object",
+      "required": [
+        "kind",
+        "target"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "composes-of",
+            "depends-on",
+            "derives-from",
+            "implements",
+            "generates",
+            "varies-from"
+          ]
+        },
+        "target": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/kizoId"
+            },
+            {
+              "$ref": "#/$defs/externalRef"
+            }
+          ]
+        },
+        "attributes": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Kind-specific attributes (find_number, binding, signal, version, digest, etc.)"
+        }
+      },
+      "additionalProperties": false
+    },
+    "envelope": {
+      "type": "object",
+      "required": [
+        "id",
+        "stratum",
+        "title",
+        "revision",
+        "provenance"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/kizoId"
+        },
+        "stratum": {
+          "$ref": "#/$defs/stratum"
+        },
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "content_hash": {
+          "type": "string",
+          "description": "Computed at evaluation time; not stored in source."
+        },
+        "revision": {
+          "$ref": "#/$defs/revision"
+        },
+        "provenance": {
+          "$ref": "#/$defs/provenance"
+        },
+        "parameters": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/parameter"
+          }
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/constraint"
+          }
+        },
+        "relationships": {
+          "oneOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/relationship"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "systemBody": {
+      "type": "object",
+      "properties": {
+        "dbom_ref": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "realization_summary": {
+          "type": "string"
+        },
+        "acceptance_gate": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "capabilityBody": {
+      "type": "object",
+      "properties": {
+        "user_value": {
+          "type": "string"
+        },
+        "boundary": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "componentBody": {
+      "type": "object",
+      "required": [
+        "boundary",
+        "runtime"
+      ],
+      "properties": {
+        "boundary": {
+          "type": "string"
+        },
+        "runtime": {
+          "type": "string",
+          "enum": [
+            "in_process",
+            "sidecar",
+            "external_service",
+            "in_browser",
+            "in_process_and_in_browser"
+          ]
+        },
+        "realization_file": {
+          "type": "string"
+        },
+        "realization_files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "realization_notes": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "interactionBody": {
+      "type": "object",
+      "required": [
+        "contract_kind"
+      ],
+      "properties": {
+        "contract_kind": {
+          "type": "string",
+          "enum": [
+            "fsm",
+            "event_flow",
+            "integration_adapter",
+            "schema_binding"
+          ]
+        },
+        "contract_definition": {
+          "type": "object"
+        },
+        "realization_file": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "deliverable": {
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "test_file",
+            "migration_file",
+            "fixture_file",
+            "fsm_acceptance"
+          ]
+        },
+        "path": {
+          "type": "string"
+        },
+        "framework": {
+          "type": "string"
+        },
+        "cases": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "content_reference": {
+          "type": "string"
+        },
+        "reference": {
+          "type": "string"
+        },
+        "assertion": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "verifier": {
+      "type": "object",
+      "required": [
+        "command",
+        "expect"
+      ],
+      "properties": {
+        "command": {
+          "type": "string"
+        },
+        "expect": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "specBodyAcceptance": {
+      "type": "object",
+      "required": [
+        "deliverables",
+        "verifier"
+      ],
+      "properties": {
+        "deliverables": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/deliverable"
+          }
+        },
+        "runtime_invariants": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "verifier": {
+          "$ref": "#/$defs/verifier"
+        }
+      },
+      "additionalProperties": true
+    },
+    "specBodyPrompt": {
+      "type": "object",
+      "required": [
+        "context_bundle",
+        "outputs",
+        "verifier"
+      ],
+      "properties": {
+        "context_bundle": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/kizoId"
+              },
+              {
+                "$ref": "#/$defs/externalRef"
+              }
+            ]
+          }
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "path"
+            ],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "prompt_template": {
+          "type": "string"
+        },
+        "verifier": {
+          "$ref": "#/$defs/verifier"
+        }
+      },
+      "additionalProperties": true
+    },
+    "specBodyAcceptanceLegacy": {
+      "type": "object",
+      "description": "Legacy v1.0 acceptance body shape (inspection_assertions). Permitted for back-compat; new authoring SHOULD use specBodyAcceptance.",
+      "properties": {
+        "inspection_assertions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "kind"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "unit_test",
+                  "property",
+                  "golden",
+                  "invariant_check"
+                ]
+              },
+              "expression": {
+                "type": "string"
+              },
+              "content": {
+                "type": "string"
+              },
+              "severity": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "content": {
+          "type": "string",
+          "description": "Free-form prose body permitted in v1.0 acceptance specs."
+        },
+        "verifier": {
+          "$ref": "#/$defs/verifier"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "#/$defs/envelope"
+    },
+    {
+      "oneOf": [
+        {
+          "title": "System node",
+          "properties": {
+            "stratum": {
+              "const": "system"
+            },
+            "body": {
+              "$ref": "#/$defs/systemBody"
+            }
+          }
+        },
+        {
+          "title": "Capability node",
+          "properties": {
+            "stratum": {
+              "const": "capability"
+            },
+            "body": {
+              "$ref": "#/$defs/capabilityBody"
+            }
+          }
+        },
+        {
+          "title": "Component node",
+          "properties": {
+            "stratum": {
+              "const": "component"
+            },
+            "body": {
+              "$ref": "#/$defs/componentBody"
+            }
+          }
+        },
+        {
+          "title": "Interaction node",
+          "properties": {
+            "stratum": {
+              "const": "interaction"
+            },
+            "body": {
+              "$ref": "#/$defs/interactionBody"
+            }
+          }
+        },
+        {
+          "title": "Spec node",
+          "required": [
+            "spec_kind"
+          ],
+          "properties": {
+            "stratum": {
+              "const": "spec"
+            },
+            "spec_kind": {
+              "type": "string",
+              "enum": [
+                "functional",
+                "technical",
+                "schema",
+                "business_rule",
+                "acceptance",
+                "prompt"
+              ]
+            },
+            "body": {
+              "type": "object",
+              "description": "Shape varies by spec_kind. acceptance and prompt have schema-enforced shapes."
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "spec_kind": {
+                    "const": "acceptance"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "body": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/specBodyAcceptance"
+                      },
+                      {
+                        "$ref": "#/$defs/specBodyAcceptanceLegacy"
+                      }
+                    ]
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "spec_kind": {
+                    "const": "prompt"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "body": {
+                    "$ref": "#/$defs/specBodyPrompt"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,172 @@
+$schema: https://puffin.dev/glm/v1/sekkei.schema.json
+# ─────────────────────────────────────────────────────────────────────────────
+# SPECS — todo_pwa_shell
+# 5 spec leaves: functional, technical, schema (DOM shell), acceptance, prompt
+# (no business_rule — the shell only owns markup; rules live with the views)
+# ─────────────────────────────────────────────────────────────────────────────
+---
+id: kizo:web.todomvc.web_ui.todo_pwa_shell.spec.functional
+stratum: spec
+spec_kind: functional
+title: TodoMVC PWA Shell — Functional
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  responsibilities:
+    - "Serve the canonical TodoMVC HTML markup at /"
+    - "Load todomvc-app-css base styles + a small index.css for any overrides"
+    - "Load app.js as the entry point — it imports and wires the five view modules"
+    - "On DOMContentLoaded, fetch GET /api/todos once and hand the data to todo_list_view"
+    - "Listen for hashchange via the todo_filter_router module"
+  page_structure: |
+    <body>
+      <section class="todoapp">
+        <header class="header">
+          <h1>todos</h1>
+          <input class="new-todo" placeholder=... autofocus>   <!-- add_todo_input -->
+        </header>
+        <section class="main">
+          <input id="toggle-all" class="toggle-all" type="checkbox">
+          <label for="toggle-all">Mark all as complete</label>
+          <ul class="todo-list"></ul>                          <!-- todo_list_view -->
+        </section>
+        <footer class="footer"></footer>                       <!-- footer_view -->
+      </section>
+      <footer class="info">
+        <p>Double-click to edit a todo</p>
+      </footer>
+      <script type="module" src="/js/app.js"></script>
+    </body>
+---
+id: kizo:web.todomvc.web_ui.todo_pwa_shell.spec.technical
+stratum: spec
+spec_kind: technical
+title: TodoMVC PWA Shell — Technical
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  build: none ("plain ES modules, served as static files by Hono")
+  files:
+    - public/index.html       # the markup above + <link rel="stylesheet">
+    - public/css/index.css    # 30-50 lines of overrides on top of the base
+    - public/css/base.css     # copy of todomvc-app-css/index.css
+    - public/js/app.js        # entry: imports the views, kicks off init()
+  app_js_responsibilities: |
+    1. import all five view modules
+    2. Define a small in-browser store: { todos: Todo[], filter: 'all'|'active'|'completed' }
+    3. fetch('/api/todos').then(r => r.json()).then(rows => { store.todos = rows; render() })
+    4. Wire the filter_router to update store.filter and re-render
+    5. Wire the views: each view receives { store, render } so changes
+       made by user actions push back through render()
+  rendering_strategy: |
+    Naive full-list re-render on every state change. Acceptable at
+    TodoMVC scale (<100 items). No virtual DOM, no diffing. Each
+    view module owns its own DOM region and re-renders that region.
+  http_strategy: |
+    All API calls are fire-and-forget fetch() with await; on success
+    update the store and re-render; on failure show a small
+    `<div class="error-banner">` (not in the canonical TodoMVC spec
+    but added for production hygiene).
+---
+id: kizo:web.todomvc.web_ui.todo_pwa_shell.spec.schema
+stratum: spec
+spec_kind: schema
+title: TodoMVC PWA Shell — DOM Schema
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  required_selectors:
+    - "section.todoapp"
+    - "header.header"
+    - "h1 (text 'todos')"
+    - "input.new-todo[placeholder][autofocus]"
+    - "section.main"
+    - "input#toggle-all.toggle-all"
+    - "label[for='toggle-all']"
+    - "ul.todo-list"
+    - "footer.footer"
+    - "footer.info"
+  required_classes_for_items:
+    li:
+      - "li (no class) when active"
+      - "li.completed when completed"
+      - "li.editing when in edit mode (added by todo_list_view)"
+    li_children:
+      - "div.view"
+      - "div.view > input.toggle[type=checkbox]"
+      - "div.view > label"
+      - "div.view > button.destroy"
+      - "input.edit (sibling of div.view, present only in edit mode)"
+  rationale: |
+    These selectors are not arbitrary — they are the contract the
+    todomvc-app-css base stylesheet uses, AND the canonical Playwright
+    test suite at https://demo.playwright.dev/todomvc/ asserts on them.
+    Deviating from these class names breaks both styling and tests.
+---
+id: kizo:web.todomvc.web_ui.todo_pwa_shell.spec.acceptance
+stratum: spec
+spec_kind: acceptance
+title: TodoMVC PWA Shell — Acceptance
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  deliverables:
+    - kind: test_file
+      path: test/e2e/shell.spec.ts
+      framework: playwright
+      cases:
+        - "page.title() === 'TodoMVC'"
+        - "input.new-todo is focused on page load"
+        - "input.new-todo has placeholder text matching input_placeholder param"
+        - "section.main is hidden when there are zero todos"
+        - "footer.footer is hidden when there are zero todos"
+        - "after one todo is added, both section.main and footer.footer are visible"
+        - "all required_selectors in spec.schema are present in the DOM"
+  runtime_invariants:
+    - "page never throws an uncaught exception during the canonical happy-path scenarios"
+    - "no console.error during normal use"
+  verifier:
+    command: "bun run dev & sleep 1 && bunx playwright test test/e2e/shell.spec.ts && kill %1"
+    expect: "all Playwright tests pass; exit code 0"
+---
+id: kizo:web.todomvc.web_ui.todo_pwa_shell.spec.prompt
+stratum: spec
+spec_kind: prompt
+title: TodoMVC PWA Shell — Generation Prompt
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  context_bundle:
+    - kizo:web.todomvc                                              # System parameters
+    - kizo:web.todomvc.web_ui                                       # Capability params
+    - kizo:web.todomvc.web_ui.todo_pwa_shell
+    - kizo:web.todomvc.web_ui.todo_pwa_shell.spec.functional
+    - kizo:web.todomvc.web_ui.todo_pwa_shell.spec.technical
+    - kizo:web.todomvc.web_ui.todo_pwa_shell.spec.schema
+    - kizo:web.todomvc.web_ui.todo_pwa_shell.spec.acceptance
+    - pkg:npm/todomvc-app-css
+    - pkg:npm/todomvc-common
+  outputs:
+    - path: public/index.html
+    - path: public/css/index.css
+    - path: public/css/base.css      # copied from todomvc-app-css
+    - path: public/js/app.js         # entry point + minimal store
+    - path: test/e2e/shell.spec.ts
+  prompt_template: |
+    Generate the TodoMVC PWA shell — the static HTML/CSS bundle plus
+    the app.js entry point that wires the five view modules. Mirror
+    the canonical TodoMVC markup EXACTLY (class names matter — the
+    base CSS and the Playwright tests both depend on them). The five
+    view modules will be generated separately and importable as ES
+    modules; you only need to import and call init({store, render})
+    on each.
+
+    HARD CONSTRAINTS:
+    - h1 text MUST be 'todos' (lowercase).
+    - input.new-todo MUST have autofocus attribute.
+    - section.main and footer.footer MUST be hidden via inline style
+      `display: none` (or class) when store.todos.length === 0.
+    - Use ES modules served as-is — NO bundler step.
+  verifier:
+    command: "bunx playwright test test/e2e/shell.spec.ts"
+    expect: "all tests pass; exit code 0 (server assumed running on server_port)"

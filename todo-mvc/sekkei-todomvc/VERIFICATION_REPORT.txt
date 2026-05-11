@@ -1,0 +1,38 @@
+Loaded 57 nodes from 14 YAML files.
+
+=== Sekkei summary ===
+  YAML files scanned: 14
+  Total nodes:        57
+  system:         1
+  capability:     2
+  component:      8
+  interaction:    4
+  spec:          42
+  spec_kind breakdown:
+    acceptance        8
+    business_rule     7
+    functional        8
+    prompt            8
+    schema            3
+    technical         8
+
+=== 1. Envelope checks ===
+  PASS
+
+=== 2. Stratum hierarchy (§C.1 amendment) ===
+  PASS
+
+=== 3. Closure completeness (composes-of / depends-on targets) ===
+  PASS
+
+=== 4. Brief coverage ===
+  PASS
+
+=== 5. Spec coverage (functional+technical+acceptance+prompt per Component) ===
+  PASS
+
+=== 6. Spec quality (acceptance has deliverables+verifier; prompt has context_bundle+outputs+verifier) ===
+  PASS
+
+=== Overall A.0 acceptance gate ===
+  PASS (dangling references treated as warnings; review report)

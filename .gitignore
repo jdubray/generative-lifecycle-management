@@ -1,0 +1,20 @@
+# Node / Bun
+todo-mvc/src/node_modules/
+todo-mvc/src/bun.lock
+todo-mvc/src/.bun/
+
+# Runtime data
+todo-mvc/src/data/
+*.db
+*.db-shm
+*.db-wal
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+
+# Python (specification/validate.py byproducts)
+__pycache__/
+*.pyc
+.venv/
+venv/

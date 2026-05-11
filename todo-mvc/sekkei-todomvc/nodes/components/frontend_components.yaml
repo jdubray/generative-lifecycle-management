@@ -1,0 +1,185 @@
+$schema: https://puffin.dev/glm/v1/sekkei.schema.json
+# ─────────────────────────────────────────────────────────────────────────────
+# COMPONENT BUNDLE — Frontend (web_ui Capability)
+# ─────────────────────────────────────────────────────────────────────────────
+---
+id: kizo:web.todomvc.web_ui.todo_pwa_shell
+stratum: component
+title: TodoMVC PWA Shell
+description: |
+  The static HTML+CSS bundle plus app.js entry point. Mirrors the
+  TodoMVC reference markup: a `<section class="todoapp">` wrapping
+  `<header>` (with the add-input), `<section class="main">` (with
+  toggle-all + list), and `<footer class="footer">` (with counter +
+  filters + clear-completed). CSS follows the canonical TodoMVC base
+  styles. No build step — vanilla JS modules served as-is.
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+constraints:
+  - kind: invariant
+    expression: "page.title == 'TodoMVC'"
+    severity: error
+  - kind: invariant
+    expression: "input.autofocus_on_page_load == true"
+    severity: error
+body:
+  boundary: |
+    Owns index.html, the CSS bundle, and the JS entry that wires the
+    five sub-views. Does NOT own per-view rendering (each view Component
+    owns its own DOM).
+  runtime: in_browser
+  realization_files:
+    - public/index.html
+    - public/css/index.css
+    - public/css/base.css
+    - public/js/app.js
+---
+id: kizo:web.todomvc.web_ui.add_todo_input
+stratum: component
+title: Add Todo Input
+description: |
+  The `<input class="new-todo">` at the top of the page. Autofocused on
+  page load. Placeholder text "What needs to be done?" (or whatever the
+  System parameter `input_placeholder` resolves to). On Enter:
+    1. trim the input value
+    2. if empty → silently do nothing (no API call)
+    3. otherwise POST to /api/todos with { title }
+    4. on 201 success → clear the input field, the list view updates
+       via local state push (no full re-fetch needed)
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+constraints:
+  - kind: invariant
+    expression: "input.placeholder == input_placeholder"
+    severity: error
+  - kind: invariant
+    expression: "Enter_with_empty_after_trim => no_api_call"
+    severity: error
+  - kind: invariant
+    expression: "Enter_with_nonempty => POST_with_201_then_clear_input"
+    severity: error
+body:
+  boundary: |
+    Owns the input element, its keydown handler, and the trim/dispatch
+    logic. Does NOT own the list re-render (delegates to
+    todo_list_view's update method).
+  runtime: in_browser
+  realization_files:
+    - public/js/add-todo-input.js
+---
+id: kizo:web.todomvc.web_ui.todo_list_view
+stratum: component
+title: Todo List View
+description: |
+  The `<ul class="todo-list">` and per-item `<li>` rendering. Each item
+  has: a checkbox (toggles completed), a label (double-click to edit),
+  and a delete button (`<button class="destroy">`, shown on hover via
+  CSS). Plus the toggle-all checkbox at the top of the list. Edit mode
+  swaps the label for an `<input class="edit">` autofocused on the
+  current text.
+
+  Edit-mode lifecycle (small FSM, see edit_mode_fsm Interaction):
+    • Double-click → enter EDITING with the current title in the input
+    • Enter or blur → save: trim; if empty → DELETE the todo; else
+      PATCH the title; return to VIEWING
+    • Escape → discard edit, return to VIEWING with original title
+
+  Toggle-all behavior: if any todo is currently active, mark all
+  completed; else mark all active. Hits POST /api/todos/toggle-all
+  with { completed: <derived> }.
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+relationships:
+  - kind: composes-of
+    target: kizo:web.todomvc.web_ui.todo_list_view.edit_mode_fsm
+constraints:
+  - kind: invariant
+    expression: "double_click_label => enter_EDITING"
+    severity: error
+  - kind: invariant
+    expression: "EDITING + Enter + empty_after_trim => DELETE_todo"
+    severity: error
+  - kind: invariant
+    expression: "EDITING + Escape => discard_edit_keep_original_title"
+    severity: error
+  - kind: invariant
+    expression: "toggle_all => POST /api/todos/toggle-all with completed = (any todo active)"
+    severity: error
+body:
+  boundary: |
+    Owns the list DOM, per-item event handlers, and the edit-mode FSM
+    instance per list item. Does NOT own the data (fetched from
+    todo_rest_api) or the filter applied to the list (passed in by
+    todo_filter_router).
+  runtime: in_browser
+  realization_files:
+    - public/js/todo-list-view.js
+    - public/js/edit-mode-fsm.js
+---
+id: kizo:web.todomvc.web_ui.footer_view
+stratum: component
+title: Footer View
+description: |
+  The `<footer class="footer">` containing three sub-elements:
+    1. `<span class="todo-count">` showing "1 item left" or "N items left"
+       (singular vs plural based on the active count)
+    2. `<ul class="filters">` with three `<a>` links: All (#/),
+       Active (#/active), Completed (#/completed). Current filter has
+       class="selected".
+    3. `<button class="clear-completed">` shown ONLY when at least one
+       todo is completed; clicking it DELETEs /api/todos/completed.
+
+  The footer itself is hidden when the todo set is empty.
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+constraints:
+  - kind: invariant
+    expression: "footer.visible <=> todos.count > 0"
+    severity: error
+  - kind: invariant
+    expression: "todo_count.text == (active_count == 1 ? '1 item left' : `${active_count} items left`)"
+    severity: error
+  - kind: invariant
+    expression: "clear_completed.visible <=> todos.any(completed: true)"
+    severity: error
+  - kind: invariant
+    expression: "selected_filter_link.has_class('selected') == true"
+    severity: error
+body:
+  boundary: |
+    Owns the footer DOM and its three sub-elements' rendering. Does NOT
+    own the URL hash routing (todo_filter_router).
+  runtime: in_browser
+  realization_files:
+    - public/js/footer-view.js
+---
+id: kizo:web.todomvc.web_ui.todo_filter_router
+stratum: component
+title: Todo Filter Router
+description: |
+  Listens to `hashchange` on window and translates the URL hash into a
+  filter state {all|active|completed}. Three valid hashes: #/, #/active,
+  #/completed. Anything else → fall back to 'all' and rewrite the hash
+  to '#/'. Pushes the new filter state to footer_view (for the
+  selected-link highlight) and todo_list_view (for the rendering
+  filter).
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+relationships:
+  - kind: composes-of
+    target: kizo:web.todomvc.web_ui.todo_filter_router.url_hash_event_flow
+constraints:
+  - kind: invariant
+    expression: "hash in ['#/', '#/active', '#/completed'] OR fallback_to('#/')"
+    severity: error
+  - kind: invariant
+    expression: "filter_state == hash_to_filter(window.location.hash)"
+    severity: error
+body:
+  boundary: |
+    Owns the hashchange listener and the hash<->filter mapping. Does NOT
+    own filter rendering (footer_view / todo_list_view consume the
+    filter state).
+  runtime: in_browser
+  realization_files:
+    - public/js/filter-router.js

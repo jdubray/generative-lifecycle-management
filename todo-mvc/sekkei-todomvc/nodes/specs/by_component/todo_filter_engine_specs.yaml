@@ -1,0 +1,138 @@
+$schema: https://puffin.dev/glm/v1/sekkei.schema.json
+# ─────────────────────────────────────────────────────────────────────────────
+# SPECS — todo_filter_engine
+# 5 spec leaves: functional, technical, business_rule, acceptance, prompt
+# (no schema spec — pure function, no data shape of its own beyond Todo)
+# ─────────────────────────────────────────────────────────────────────────────
+---
+id: kizo:web.todomvc.todo_management.todo_filter_engine.spec.functional
+stratum: spec
+spec_kind: functional
+title: Todo Filter Engine — Functional
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  behaviors:
+    - id: filter
+      signature: "filter(mode: 'all'|'active'|'completed', todos: Todo[]): Todo[]"
+      description: |
+        Pure synchronous function. Returns a new array (does not
+        mutate input). Order of returned todos preserves input order.
+        Mode mapping:
+          'all'       → returns input unchanged
+          'active'    → returns todos.filter(t => !t.completed)
+          'completed' → returns todos.filter(t => t.completed)
+        Unknown mode → throw a TypeError with the offending value;
+        callers (REST API, UI router) MUST validate before calling.
+    - id: countActive
+      signature: "countActive(todos: Todo[]): number"
+      description: Convenience helper. Equivalent to filter('active', todos).length.
+    - id: countCompleted
+      signature: "countCompleted(todos: Todo[]): number"
+      description: Convenience helper. Equivalent to filter('completed', todos).length.
+---
+id: kizo:web.todomvc.todo_management.todo_filter_engine.spec.technical
+stratum: spec
+spec_kind: technical
+title: Todo Filter Engine — Technical
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  implementation:
+    runtime: in_process_and_in_browser
+    purity: |
+      MUST be a pure function: same input → same output, no I/O, no
+      Date.now(), no global reads. Importable from both the Bun backend
+      (src/filter.ts) and the browser bundle (public/js/filter.js).
+    source_strategy: |
+      Single canonical source at src/filter.ts. The browser copy is
+      either (a) hand-mirrored to public/js/filter.js with the SAME
+      logic, or (b) copied at build time. Either is acceptable as long
+      as the two implementations stay byte-equivalent for the three
+      mode branches.
+    types: |
+      The Todo type referenced is the one defined in
+      todo_repository.spec.schema. The function accepts any object
+      with a boolean `completed` property; the rest is unused.
+  module_layout: |
+    src/filter.ts          (backend export)
+    public/js/filter.js    (browser export — IIFE or ES module)
+---
+id: kizo:web.todomvc.todo_management.todo_filter_engine.spec.business_rule
+stratum: spec
+spec_kind: business_rule
+title: Todo Filter Engine — Business Rules
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  rules:
+    - id: BR-FILTER-001
+      rule: "Backend filter and frontend filter MUST agree on the same input."
+      enforcement: shared source file (or build-time copy) + acceptance test runs same fixtures through both
+    - id: BR-FILTER-002
+      rule: "Filter is total: every Todo lands in exactly one of {active, completed}; their union equals 'all'."
+      enforcement: test asserts filter('active') ∪ filter('completed') == filter('all') for any input
+    - id: BR-FILTER-003
+      rule: "Filter is order-preserving."
+      enforcement: test asserts the returned array is a stable sub-sequence of the input
+---
+id: kizo:web.todomvc.todo_management.todo_filter_engine.spec.acceptance
+stratum: spec
+spec_kind: acceptance
+title: Todo Filter Engine — Acceptance
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  deliverables:
+    - kind: test_file
+      path: test/filter.test.ts
+      framework: bun:test
+      cases:
+        - "filter('all', xs) === xs by deep equality (not necessarily by reference)"
+        - "filter('active', mixed) returns only completed=false rows in input order"
+        - "filter('completed', mixed) returns only completed=true rows in input order"
+        - "filter('bogus', xs) throws TypeError"
+        - "filter does not mutate the input array"
+        - "countActive(mixed) === filter('active', mixed).length"
+        - "filter('active') ∪ filter('completed') == filter('all') (union is order-preserving)"
+  runtime_invariants:
+    - "purity: filter(m, xs) called twice in succession with no other code in between returns identical results"
+  verifier:
+    command: "bun test test/filter.test.ts"
+    expect: "all tests pass; exit code 0"
+---
+id: kizo:web.todomvc.todo_management.todo_filter_engine.spec.prompt
+stratum: spec
+spec_kind: prompt
+title: Todo Filter Engine — Generation Prompt
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  context_bundle:
+    - kizo:web.todomvc.todo_management.todo_filter_engine
+    - kizo:web.todomvc.todo_management.todo_filter_engine.spec.functional
+    - kizo:web.todomvc.todo_management.todo_filter_engine.spec.technical
+    - kizo:web.todomvc.todo_management.todo_filter_engine.spec.business_rule
+    - kizo:web.todomvc.todo_management.todo_filter_engine.spec.acceptance
+    - kizo:web.todomvc.todo_management.todo_repository.spec.schema   # for Todo shape
+  outputs:
+    - path: src/filter.ts
+      description: Exports filter, countActive, countCompleted as pure functions.
+    - path: public/js/filter.js
+      description: Browser-importable copy with byte-equivalent semantics (ES module export).
+    - path: test/filter.test.ts
+      description: bun:test cases enumerated in spec.acceptance.deliverables[0].cases.
+  prompt_template: |
+    Implement a pure filter engine for TodoMVC. Read the bundled
+    context. Produce the three files listed in `outputs`. Both the
+    .ts and .js copies must implement the same three branches; the
+    test suite imports from src/filter.ts.
+
+    HARD CONSTRAINTS:
+    - Pure function — no Date, no console, no globals.
+    - Throw TypeError on unknown mode (do NOT silently fall back).
+    - Return new arrays for 'active' and 'completed'; for 'all' you
+      may return the input by reference OR a copy — both pass.
+  verifier:
+    command: "bun test test/filter.test.ts"
+    expect: "all tests pass; exit code 0"

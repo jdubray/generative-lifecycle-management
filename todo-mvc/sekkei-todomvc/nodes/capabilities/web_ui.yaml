@@ -1,0 +1,77 @@
+$schema: https://puffin.dev/glm/v1/sekkei.schema.json
+id: kizo:web.todomvc.web_ui
+stratum: capability
+title: Web UI
+description: |
+  Browser-side TodoMVC PWA matching the canonical reference at
+  https://demo.playwright.dev/todomvc/. Five surfaces: the page shell
+  (HTML+CSS+app.js entry), the add-todo input, the todo list (with
+  per-item edit/toggle/delete + toggle-all), the footer (counter,
+  filter links, clear-completed), and the URL hash router that drives
+  filter state. Talks to the backend via the REST API owned by
+  todo_rest_api.
+
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+
+parameters:
+  - name: input_placeholder
+    schema: { type: string }
+    default: "What needs to be done?"
+    binding_scope: capability
+  - name: hash_routes
+    schema:
+      type: array
+      items: { type: string, enum: ["#/", "#/active", "#/completed"] }
+    default: ["#/", "#/active", "#/completed"]
+    binding_scope: capability
+  - name: counter_singular_label
+    schema: { type: string }
+    default: "1 item left"
+    binding_scope: capability
+  - name: counter_plural_template
+    schema: { type: string }
+    default: "%d items left"
+    binding_scope: capability
+  - name: footer_visible_when_empty
+    schema: { type: boolean }
+    default: false
+    binding_scope: capability
+
+constraints:
+  - kind: invariant
+    expression: "input_field.autofocus_on_load == true"
+    severity: error
+  - kind: invariant
+    expression: "footer.rendered <=> todos.count > 0"
+    severity: error
+  - kind: invariant
+    expression: "main_section.rendered <=> todos.count > 0"
+    severity: error
+  - kind: invariant
+    expression: "clear_completed_button.visible <=> todos.any(completed: true)"
+    severity: error
+
+relationships:
+  - kind: composes-of
+    target: kizo:web.todomvc.web_ui.todo_pwa_shell
+  - kind: composes-of
+    target: kizo:web.todomvc.web_ui.add_todo_input
+  - kind: composes-of
+    target: kizo:web.todomvc.web_ui.todo_list_view
+  - kind: composes-of
+    target: kizo:web.todomvc.web_ui.footer_view
+  - kind: composes-of
+    target: kizo:web.todomvc.web_ui.todo_filter_router
+
+  - kind: depends-on
+    target: kizo:web.todomvc.todo_management.todo_rest_api
+    attributes: { binding: api_consumer }
+
+body:
+  user_value: |
+    The user opens the page, sees an input prompting them to add a todo,
+    types and presses Enter — the todo appears in the list. Marking it
+    complete strikes it through. Filters at the bottom let the user view
+    All / Active / Completed without losing state. Page refresh restores
+    the same list (since persistence is the backend).

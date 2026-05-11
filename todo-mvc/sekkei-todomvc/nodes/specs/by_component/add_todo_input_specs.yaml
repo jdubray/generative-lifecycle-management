@@ -1,0 +1,134 @@
+$schema: https://puffin.dev/glm/v1/sekkei.schema.json
+# ─────────────────────────────────────────────────────────────────────────────
+# SPECS — add_todo_input
+# 5 spec leaves: functional, technical, business_rule, acceptance, prompt
+# ─────────────────────────────────────────────────────────────────────────────
+---
+id: kizo:web.todomvc.web_ui.add_todo_input.spec.functional
+stratum: spec
+spec_kind: functional
+title: Add Todo Input — Functional
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  behaviors:
+    - id: init
+      signature: "init({ store, render }): void"
+      description: |
+        Locate input.new-todo. Attach a keydown listener filtering for
+        the Enter key. Set placeholder = input_placeholder param.
+    - id: handleEnter
+      signature: "(event: KeyboardEvent): void  (when key === 'Enter')"
+      description: |
+        1. Take the input.value
+        2. trim it
+        3. if empty → preventDefault + return (no API call, no clear)
+        4. POST /api/todos with { title }
+        5. on 201: parse Todo, push into store.todos, clear the input, call render()
+        6. on 4xx: leave the input alone, show an error banner via store.error
+    - id: noOpOnOtherKeys
+      description: "Any key other than Enter is allowed to flow through normally."
+---
+id: kizo:web.todomvc.web_ui.add_todo_input.spec.technical
+stratum: spec
+spec_kind: technical
+title: Add Todo Input — Technical
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  module: public/js/add-todo-input.js
+  exports: "default function init({store, render})"
+  selectors_owned: "input.new-todo"
+  event_listener: "keydown on input.new-todo"
+  http_call: |
+    fetch('/api/todos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title })
+    })
+  ime_handling: |
+    If event.isComposing OR event.keyCode === 229 → ignore the Enter
+    (the user is mid-IME-composition). This prevents accidental submit
+    in CJK input methods.
+  loading_state: |
+    Set input.disabled = true between dispatch and resolution to
+    prevent double-submit. Re-enable in finally{}.
+---
+id: kizo:web.todomvc.web_ui.add_todo_input.spec.business_rule
+stratum: spec
+spec_kind: business_rule
+title: Add Todo Input — Business Rules
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  rules:
+    - id: BR-INPUT-001
+      rule: "Pressing Enter with whitespace-only input MUST NOT make a network call."
+      enforcement: client trim BEFORE fetch
+    - id: BR-INPUT-002
+      rule: "Input MUST clear ONLY after the API responds 201."
+      enforcement: clear inside the .then(); never clear unconditionally on Enter
+    - id: BR-INPUT-003
+      rule: "An IME composition Enter MUST be ignored."
+      enforcement: check event.isComposing
+    - id: BR-INPUT-004
+      rule: "Input MUST be re-enabled even if the fetch throws."
+      enforcement: try/finally
+---
+id: kizo:web.todomvc.web_ui.add_todo_input.spec.acceptance
+stratum: spec
+spec_kind: acceptance
+title: Add Todo Input — Acceptance
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  deliverables:
+    - kind: test_file
+      path: test/e2e/add-todo.spec.ts
+      framework: playwright
+      cases:
+        - "Type 'buy milk', press Enter → an <li> appears with text 'buy milk', input is cleared"
+        - "Type only spaces, press Enter → no <li> appears, input keeps the spaces"
+        - "Type 'a', press Enter, type 'b', press Enter → two <li>s in order [a, b]"
+        - "Network error case (server unreachable) → input is NOT cleared, error banner appears"
+        - "Mock IME: dispatch keydown with isComposing=true → no fetch is made"
+  runtime_invariants:
+    - "Number of POST /api/todos calls === number of non-empty Enters"
+    - "Input.disabled is false at any moment when the user is not actively waiting on a request"
+  verifier:
+    command: "bunx playwright test test/e2e/add-todo.spec.ts"
+    expect: "all tests pass; exit code 0"
+---
+id: kizo:web.todomvc.web_ui.add_todo_input.spec.prompt
+stratum: spec
+spec_kind: prompt
+title: Add Todo Input — Generation Prompt
+revision: { major: A, iteration: 0, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-sekkei-validator@A.0, authored_at: 2026-05-10T00:00:00Z }
+body:
+  context_bundle:
+    - kizo:web.todomvc.web_ui                                       # input_placeholder param
+    - kizo:web.todomvc.web_ui.add_todo_input
+    - kizo:web.todomvc.web_ui.add_todo_input.spec.functional
+    - kizo:web.todomvc.web_ui.add_todo_input.spec.technical
+    - kizo:web.todomvc.web_ui.add_todo_input.spec.business_rule
+    - kizo:web.todomvc.web_ui.add_todo_input.spec.acceptance
+    - kizo:web.todomvc.web_ui.todo_pwa_shell.spec.schema           # selectors contract
+    - kizo:web.todomvc.todo_management.todo_rest_api.spec.functional # POST /api/todos
+  outputs:
+    - path: public/js/add-todo-input.js
+    - path: test/e2e/add-todo.spec.ts
+  prompt_template: |
+    Implement the add-todo input module. Default-export an init
+    function that takes {store, render}. On Enter, follow the trim →
+    validate → POST → push → clear → render flow described in
+    spec.functional. Honor every rule in spec.business_rule.
+
+    HARD CONSTRAINTS:
+    - Do NOT clear the input on whitespace-only Enter.
+    - Do NOT clear the input until 201 is received.
+    - Skip Enter when isComposing (IME).
+    - Disable the input across the network round-trip.
+  verifier:
+    command: "bunx playwright test test/e2e/add-todo.spec.ts"
+    expect: "all tests pass; exit code 0"
