@@ -246,4 +246,3 @@ body:
   verifier:
     command: "bun test test/api.test.ts"
     expect: "all tests pass; exit code 0"
-t code 0"

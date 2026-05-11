@@ -39,7 +39,7 @@ def main():
     ap.add_argument("--show", type=int, default=10, help="How many failing nodes to show")
     args = ap.parse_args()
 
-    schema = json.load(open(SCHEMA_PATH))
+    schema = json.load(open(SCHEMA_PATH, encoding="utf-8"))
     validator = Draft202012Validator(schema)
 
     root = Path(args.sekkei_root)
@@ -58,7 +58,7 @@ def main():
         if str(rel) == "nodes/dependencies/external_deps.yaml":
             continue
         try:
-            docs = list(yaml.safe_load_all(open(yaml_path)))
+            docs = list(yaml.safe_load_all(open(yaml_path, encoding="utf-8")))
         except yaml.YAMLError as e:
             print(f"YAML PARSE ERROR in {rel}: {e}", file=sys.stderr)
             continue

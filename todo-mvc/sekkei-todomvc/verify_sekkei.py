@@ -28,7 +28,7 @@ from pathlib import Path
 
 import yaml
 
-SEKKEI_ROOT = Path("/sessions/gifted-epic-cannon/mnt/glm/sekkei-todomvc")
+SEKKEI_ROOT = Path(__file__).resolve().parent
 
 VALID_STRATA = {"system", "capability", "component", "interaction", "spec"}
 VALID_OVERRIDE_KIND = {"as_is", "with_override", "extend", "net_new"}
@@ -90,7 +90,7 @@ def load_all_nodes():
         if str(rel) == "nodes/dependencies/external_deps.yaml":
             continue
         files_seen.append(str(rel))
-        with open(yaml_path) as f:
+        with open(yaml_path, encoding="utf-8") as f:
             try:
                 docs = list(yaml.safe_load_all(f))
             except yaml.YAMLError as e:
