@@ -9,6 +9,12 @@ todo-mvc/src/data/
 *.db-shm
 *.db-wal
 
+# Playwright artifacts
+todo-mvc/src/test-results/
+todo-mvc/src/playwright-report/
+todo-mvc/src/blob-report/
+todo-mvc/src/playwright/.cache/
+
 # OS / editor noise
 .DS_Store
 Thumbs.db

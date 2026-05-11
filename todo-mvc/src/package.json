@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "bun run src/server.ts",
     "start": "bun run src/server.ts",
-    "test": "bun test"
+    "test": "bun test test/unit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
     "hono": "^4.0.0",
@@ -14,6 +16,7 @@
     "zod": "^3.22.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.49.0",
     "@types/bun": "latest",
     "typescript": "^5.0.0"
   }
