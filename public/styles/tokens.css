@@ -1,0 +1,55 @@
+/* ----------------------------------------------------------------------------
+   Puffin GLM — design tokens
+   Ported from mockup/styles.css (see ADR-0002).
+---------------------------------------------------------------------------- */
+:root {
+  --bg:        #F7F6F2;
+  --bg-2:      #EFEDE6;
+  --surface:   #FFFFFF;
+  --surface-2: #FAF9F5;
+  --border:    #E5E2DA;
+  --border-2:  #D6D2C7;
+  --ink:       #14140F;
+  --ink-2:     #3A3A33;
+  --ink-3:     #6B6B62;
+  --ink-4:     #9C9C92;
+
+  --accent:        oklch(0.55 0.17 28);
+  --accent-hover:  oklch(0.50 0.18 28);
+  --accent-soft:   oklch(0.94 0.04 28);
+  --accent-line:   oklch(0.82 0.10 28);
+
+  --st-inwork:     oklch(0.65 0.13 70);
+  --st-inwork-bg:  oklch(0.95 0.04 75);
+  --st-review:    oklch(0.55 0.12 240);
+  --st-review-bg: oklch(0.95 0.03 240);
+  --st-released:   oklch(0.55 0.13 150);
+  --st-released-bg:oklch(0.95 0.03 150);
+  --st-super:      oklch(0.55 0.01 250);
+  --st-super-bg:   oklch(0.94 0.005 250);
+  --st-drift:      oklch(0.55 0.17 28);
+  --st-drift-bg:   oklch(0.95 0.04 28);
+
+  --radius: 6px;
+  --radius-sm: 4px;
+  --shadow-sm: 0 1px 0 rgba(20,20,15,0.04), 0 1px 2px rgba(20,20,15,0.03);
+  --shadow-md: 0 2px 8px rgba(20,20,15,0.06), 0 1px 2px rgba(20,20,15,0.04);
+
+  --font-sans: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:        #18171A;
+    --bg-2:      #1E1D20;
+    --surface:   #232225;
+    --surface-2: #1B1A1D;
+    --border:    #34323A;
+    --border-2:  #44424B;
+    --ink:       #F4F2EE;
+    --ink-2:     #D6D4CF;
+    --ink-3:     #9D9B96;
+    --ink-4:     #6B6963;
+  }
+}

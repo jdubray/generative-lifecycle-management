@@ -1,0 +1,11 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# DEPRECATED — kizo:dev.glm.workbench  (A.0 speculative; DROPPED in A.1)
+#
+# Rationale: the realization has no engine/workbench Sub-System split.
+# All server-side concerns live in one Bun process backed by one Hono app
+# (src/server/app.ts) and one SQLite handle. Capabilities are now flat
+# under the root System (sekkei.yaml). See sekkei/REALIZATION_INVENTORY.md.
+#
+# This file is kept empty (no `id`/`stratum`) so the verifier/validator
+# skip it. Future cleanup may remove the file outright.
+# ─────────────────────────────────────────────────────────────────────────────

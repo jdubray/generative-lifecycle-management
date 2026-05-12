@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sign in — Puffin GLM</title>
+    <link rel="stylesheet" href="/public/styles/tokens.css" />
+    <link rel="stylesheet" href="/public/styles/app.css" />
+  </head>
+  <body class="login">
+    <main class="login-card">
+      <h1>Puffin GLM</h1>
+      <p class="muted">Dev login — enter any email to start a session.</p>
+      <form id="login-form">
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" required placeholder="alice@example.com" />
+        <button type="submit">Continue</button>
+        <p id="error" class="error" hidden></p>
+      </form>
+    </main>
+    <script type="module">
+      const form = document.getElementById('login-form');
+      const error = document.getElementById('error');
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        error.hidden = true;
+        const email = document.getElementById('email').value;
+        const res = await fetch('/api/v1/auth/login', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ email }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          error.textContent = body.error?.message ?? 'login failed';
+          error.hidden = false;
+          return;
+        }
+        location.assign('/');
+      });
+    </script>
+  </body>
+</html>

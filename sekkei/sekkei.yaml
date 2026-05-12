@@ -1,0 +1,146 @@
+$schema: https://puffin.dev/glm/v1/sekkei.schema.json
+# ─────────────────────────────────────────────────────────────────────────────
+# ROOT SYSTEM — kizo:dev.glm @ A.1
+#
+# REVISION NOTE (A.1): A.0 was speculatively authored before the realization
+# existed and split the surface into two Sub-Systems (workbench + engine).
+# After the TypeScript realization shipped, the actual code is a monolithic
+# Bun + Hono server with one SQLite handle, one Hono app, and one process.
+# There is no workbench/engine partition in the code. A.1 flattens the
+# Sub-System tier away and lists Capabilities directly under the root.
+# ─────────────────────────────────────────────────────────────────────────────
+
+id: kizo:dev.glm
+stratum: system
+title: GLM — Generative Lifecycle Management application
+description: |
+  A multi-user web application for authoring, reviewing, and regenerating
+  sekkeis. Server is a single Bun process hosting a Hono router backed by
+  bun:sqlite (WAL) persistence. Client is a vanilla-JS PWA served from
+  /public with no build step. Collaboration broadcast runs over WebSocket
+  (not SSE) — `ws/event-bus.ts` is the in-process pub/sub, `ws/workspace-socket.ts`
+  is the per-socket Bun ServerWebSocket fan-out.
+
+  Single-tenant per organization. Concurrency profile: 1–50 simultaneous
+  editors per sekkei. Sekkei size profile: 100–500 nodes typical, fitting
+  comfortably in single-digit GB of SQLite per workspace.
+
+  The realization has 16 Capabilities under one root System (no Sub-Systems).
+  The methodology this sekkei describes is normatively documented in
+  ../specification/sekkei_specification.md (companion document).
+
+revision:
+  major: A
+  iteration: 1
+  status: in_review
+
+provenance:
+  derives_from:
+    id: kizo:dev.glm
+    content_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  override_kind: with_override
+  authored_by: glm-reverse-engineer@A.1
+  authored_at: 2026-05-11T00:00:00Z
+
+parameters:
+  - name: PORT
+    schema: { type: integer, minimum: 1024, maximum: 65535 }
+    default: 3000
+    binding_scope: system
+  - name: SESSION_SECRET
+    schema: { type: string }
+    default: null
+    binding_scope: system
+  - name: NODE_ENV
+    schema: { type: string, enum: [development, production, test] }
+    default: development
+    binding_scope: system
+  - name: GLM_DB_PATH
+    schema: { type: string }
+    default: ":memory:"
+    binding_scope: system
+  - name: GLM_DSSE_HMAC_KEY
+    schema: { type: string }
+    default: null
+    binding_scope: system
+  - name: GLM_SIGN_COMMITS
+    schema: { type: string, enum: ["true", "false"] }
+    default: "false"
+    binding_scope: system
+  - name: GLM_WORKSPACE
+    schema: { type: string }
+    default: null
+    binding_scope: system
+
+constraints:
+  - kind: invariant
+    expression: "organizations.cardinality_per_install == 1"
+    severity: error
+  - kind: invariant
+    expression: "every_node.has_content_hash_at_evaluation_time == true"
+    severity: error
+  - kind: invariant
+    expression: "every_regeneration.has_in_toto_attestation == true"
+    severity: error
+
+relationships:
+  - { kind: composes-of, target: kizo:dev.glm.identity,              attributes: { find_number: "1.0" } }
+  - { kind: composes-of, target: kizo:dev.glm.authoring,             attributes: { find_number: "2.0" } }
+  - { kind: composes-of, target: kizo:dev.glm.collaboration,         attributes: { find_number: "3.0" } }
+  - { kind: composes-of, target: kizo:dev.glm.change_management,     attributes: { find_number: "4.0" } }
+  - { kind: composes-of, target: kizo:dev.glm.variant_resolution,    attributes: { find_number: "5.0" } }
+  - { kind: composes-of, target: kizo:dev.glm.generation,            attributes: { find_number: "6.0" } }
+  - { kind: composes-of, target: kizo:dev.glm.provenance,            attributes: { find_number: "7.0" } }
+  - { kind: composes-of, target: kizo:dev.glm.drift_reconciliation,  attributes: { find_number: "8.0" } }
+  - { kind: composes-of, target: kizo:dev.glm.reuse_management,      attributes: { find_number: "9.0" } }
+  - { kind: composes-of, target: kizo:dev.glm.verification,          attributes: { find_number: "10.0" } }
+  - { kind: composes-of, target: kizo:dev.glm.agent_orchestration,   attributes: { find_number: "11.0" } }
+  - { kind: composes-of, target: kizo:dev.glm.git,                   attributes: { find_number: "12.0" } }
+  - { kind: composes-of, target: kizo:dev.glm.persistence,           attributes: { find_number: "13.0" } }
+  - { kind: composes-of, target: kizo:dev.glm.runtime,               attributes: { find_number: "14.0" } }
+  - { kind: composes-of, target: kizo:dev.glm.observability,         attributes: { find_number: "15.0" } }
+  - { kind: composes-of, target: kizo:dev.glm.distribution,          attributes: { find_number: "16.0" } }
+
+  - { kind: depends-on, target: "pkg:generic/bun@1.1",                attributes: { role: runtime } }
+  - { kind: depends-on, target: "pkg:npm/hono@4",                     attributes: { role: http_framework } }
+  - { kind: depends-on, target: "pkg:npm/yaml",                       attributes: { role: yaml_io } }
+  - { kind: depends-on, target: "pkg:generic/anthropic-messages-api", attributes: { role: llm_provider_default } }
+
+body:
+  system_role: root
+  dbom_ref: null
+  realization_summary: |
+    Single Bun process. One Hono app factory (src/server/app.ts) wires all
+    middleware and /api/v1 routes; src/server/server.ts is the bootstrap
+    that reads PORT + SESSION_SECRET, opens the SQLite database via
+    src/repository/db.ts, and calls Bun.serve. There is NO engine/workbench
+    split: workbench routes, regeneration pipeline, verifier, websockets,
+    and the git service all share the same RuntimeDeps container
+    (src/server/deps.ts) and the same SQLite handle.
+
+    Collaboration is WebSocket-based (Bun ServerWebSocket + an in-process
+    EventBus in src/ws/), not SSE. The PWA is served as ES modules from
+    /public by src/server/routes/static.ts with a service worker.
+
+    LLM dispatch uses src/generation/llm-client.ts (Fake + Anthropic
+    Messages API). Content-addressed artifact caching uses
+    src/generation/cache.ts. Attestations are in-toto Statement v1 + DSSE
+    envelope built by src/generation/attestation.ts.
+  acceptance_gate: |
+    Regenerating this sekkei into a working GLM must produce a system that:
+      1. Boots on `bun run src/server/server.ts` and serves the workbench
+         + /api/v1 at http://localhost:${PORT}.
+      2. Authors nodes against specification/sekkei.schema.json with
+         soft-lock contention surfacing as HTTP 423, and live WebSocket
+         fan-out of node.changed events.
+      3. Implements the realized GLM processes — SCR FSM, variant
+         resolution + sekkei.lock, drift classification + auto-heal,
+         reuse 4-stage promotion, in-toto/DSSE provenance, 7-gate
+         verifier, Vibe Mode scripted scenarios, and ECN git commits.
+      4. Successfully regenerates the BaanBaan and TodoMVC example
+         sekkeis end-to-end with all 7 verifier gates passing.
+      5. Carries an in-toto attestation linking every generated artifact
+         back to its sekkei commit + sekkei.lock content hash + generator
+         identity, persistable as NDJSON via /provenance export.
+      6. Passes every spec.acceptance.deliverables[].verifier across all
+         Components (gates 5 + 6 of verify_sekkei.py).

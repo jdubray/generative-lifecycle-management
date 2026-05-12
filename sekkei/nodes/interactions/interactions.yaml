@@ -1,0 +1,271 @@
+$schema: https://puffin.dev/glm/v1/sekkei.schema.json
+# ─────────────────────────────────────────────────────────────────────────────
+# INTERACTIONS — FSMs and event flows copied VERBATIM from the realization
+# Inventory source: sekkei/REALIZATION_INVENTORY.md §4 (FSMs)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── 1. SCR Lifecycle FSM ────────────────────────────────────────────────────
+---
+id: kizo:dev.glm.change_management.scr_fsm.scr_lifecycle_fsm
+stratum: interaction
+title: SCR Lifecycle FSM
+description: |
+  Sekkei Change Request lifecycle. Eight states, eight events. Two terminal
+  states: Rejected and Released. Read verbatim from src/domain/scr.ts.
+
+revision: { major: A, iteration: 1, status: in_review }
+
+provenance:
+  derives_from: null
+  override_kind: net_new
+  authored_by: glm-reverse-engineer@A.1
+  authored_at: 2026-05-11T00:00:00Z
+
+constraints:
+  - kind: invariant
+    expression: "status in ['Draft','Submitted','Under Review','Approved','Returned','Rejected','Implemented','Released']"
+    severity: error
+  - kind: invariant
+    expression: "terminal_states == ['Rejected','Released']"
+    severity: error
+
+body:
+  contract_kind: fsm
+  contract_definition:
+    pc: status
+    pc0: Draft
+    states:
+      - { id: "Draft",        terminal: false, transitions: [submit] }
+      - { id: "Submitted",    terminal: false, transitions: [startReview] }
+      - { id: "Under Review", terminal: false, transitions: [approve, return, reject] }
+      - { id: "Approved",     terminal: false, transitions: [implement] }
+      - { id: "Returned",     terminal: false, transitions: [reopen] }
+      - { id: "Rejected",     terminal: true }
+      - { id: "Implemented",  terminal: false, transitions: [release] }
+      - { id: "Released",     terminal: true }
+    transitions:
+      - { from: "Draft",        event: submit,      to: "Submitted" }
+      - { from: "Submitted",    event: startReview, to: "Under Review" }
+      - { from: "Under Review", event: approve,     to: "Approved" }
+      - { from: "Under Review", event: "return",    to: "Returned" }
+      - { from: "Under Review", event: reject,      to: "Rejected" }
+      - { from: "Returned",     event: reopen,      to: "Draft" }
+      - { from: "Approved",     event: implement,   to: "Implemented" }
+      - { from: "Implemented",  event: release,     to: "Released" }
+  realization_file: src/domain/scr.ts
+
+# ── 2. Drift Classification FSM ─────────────────────────────────────────────
+---
+id: kizo:dev.glm.drift_reconciliation.drift_classifier.drift_status_fsm
+stratum: interaction
+title: Drift Status FSM
+description: |
+  Status the drift_classifier returns for a (desiredHash, observedHash,
+  kind, policy, suspended) tuple. Read verbatim from src/domain/drift.ts.
+  Note: this is a classification rule set, not a transitionable state graph —
+  every classify() call is computed from fresh inputs.
+
+revision: { major: A, iteration: 1, status: in_review }
+
+provenance:
+  derives_from: null
+  override_kind: net_new
+  authored_by: glm-reverse-engineer@A.1
+  authored_at: 2026-05-11T00:00:00Z
+
+constraints:
+  - kind: invariant
+    expression: "status in ['Synced','Hash-Drifted','Live-Drifted','Suspended']"
+    severity: error
+  - kind: invariant
+    expression: "kind in ['none','hash','live_state']"
+    severity: error
+  - kind: invariant
+    expression: "policy in ['auto-heal','alert','suspend']"
+    severity: error
+
+body:
+  contract_kind: fsm
+  contract_definition:
+    pc: status
+    pc0: "Synced"
+    states:
+      - { id: "Synced",        terminal: false }
+      - { id: "Hash-Drifted",  terminal: false }
+      - { id: "Live-Drifted",  terminal: false }
+      - { id: "Suspended",     terminal: false }
+    classification_rules:
+      - "suspended == true ⇒ Suspended"
+      - "kind == none ⇒ Synced"
+      - "observedHash == null ⇒ drift status per kind; shouldAutoHeal iff policy == 'auto-heal'"
+      - "desiredHash == observedHash ⇒ Synced"
+      - "otherwise ⇒ drift status per kind; shouldAutoHeal iff policy == 'auto-heal' AND kind == 'live_state'"
+    kind_status_map:
+      hash: "Hash-Drifted"
+      live_state: "Live-Drifted"
+    policies: ["auto-heal", "alert", "suspend"]
+  realization_file: src/domain/drift.ts
+
+# ── 3. Variant Rollout FSM ──────────────────────────────────────────────────
+---
+id: kizo:dev.glm.variant_resolution.variant_routes.variant_rollout_fsm
+stratum: interaction
+title: Variant Rollout FSM
+description: |
+  Strict 5-stage rollout order. AC-20 refuses advance when
+  pinRev === availableRev. Read verbatim from
+  src/server/routes/variants.ts.
+
+revision: { major: A, iteration: 1, status: in_review }
+
+provenance:
+  derives_from: null
+  override_kind: net_new
+  authored_by: glm-reverse-engineer@A.1
+  authored_at: 2026-05-11T00:00:00Z
+
+constraints:
+  - kind: invariant
+    expression: "stage in ['Released','Available-on-Channel','Pinned-by-Variant','Generated-for-Instance','Deployed-to-dBOM']"
+    severity: error
+  - kind: invariant
+    expression: "advance_refused_when(pinRev == availableRev)"
+    severity: error
+
+body:
+  contract_kind: fsm
+  contract_definition:
+    pc: stage
+    pc0: "Released"
+    states:
+      - { id: "Released",              terminal: false }
+      - { id: "Available-on-Channel",  terminal: false }
+      - { id: "Pinned-by-Variant",     terminal: false }
+      - { id: "Generated-for-Instance", terminal: false }
+      - { id: "Deployed-to-dBOM",      terminal: true }
+    order:
+      - "Released"
+      - "Available-on-Channel"
+      - "Pinned-by-Variant"
+      - "Generated-for-Instance"
+      - "Deployed-to-dBOM"
+    advance_rule: "Pinned-by-Variant → Generated-for-Instance refused when pinRev === availableRev (AC-20)"
+  realization_file: src/server/routes/variants.ts
+
+# ── 4. Reuse Stage FSM ──────────────────────────────────────────────────────
+---
+id: kizo:dev.glm.reuse_management.reuse_routes.reuse_stage_fsm
+stratum: interaction
+title: Reuse Stage FSM
+description: |
+  Strict 4-stage promotion path. One-step-at-a-time only.
+  Promoted-to-Library requires a steward (AC-30). Read verbatim from
+  src/server/routes/reuse.ts.
+
+revision: { major: A, iteration: 1, status: in_review }
+
+provenance:
+  derives_from: null
+  override_kind: net_new
+  authored_by: glm-reverse-engineer@A.1
+  authored_at: 2026-05-11T00:00:00Z
+
+constraints:
+  - kind: invariant
+    expression: "stage in ['Variant-Local','Candidate-for-Promotion','Promoted-to-Library','Stewarded-by-Owner']"
+    severity: error
+  - kind: invariant
+    expression: "advance_one_step_at_a_time == true"
+    severity: error
+  - kind: invariant
+    expression: "promotion_to('Promoted-to-Library') requires steward (AC-30)"
+    severity: error
+
+body:
+  contract_kind: fsm
+  contract_definition:
+    pc: stage
+    pc0: "Variant-Local"
+    states:
+      - { id: "Variant-Local",            terminal: false }
+      - { id: "Candidate-for-Promotion",  terminal: false }
+      - { id: "Promoted-to-Library",      terminal: false }
+      - { id: "Stewarded-by-Owner",       terminal: true }
+    order:
+      - "Variant-Local"
+      - "Candidate-for-Promotion"
+      - "Promoted-to-Library"
+      - "Stewarded-by-Owner"
+  realization_file: src/server/routes/reuse.ts
+
+# ── 5. WebSocket Event Types (event_flow) ───────────────────────────────────
+---
+id: kizo:dev.glm.collaboration.event_bus.workspace_event_flow
+stratum: interaction
+title: Workspace Event Flow
+description: |
+  Eleven workspace event types fanned out by the in-process EventBus and
+  re-emitted by workspace-socket to connected clients. Read verbatim from
+  src/ws/event-bus.ts.
+
+revision: { major: A, iteration: 1, status: in_review }
+
+provenance:
+  derives_from: null
+  override_kind: net_new
+  authored_by: glm-reverse-engineer@A.1
+  authored_at: 2026-05-11T00:00:00Z
+
+constraints:
+  - kind: invariant
+    expression: "events == ['node.changed','node.locked','node.unlocked','scr.created','scr.status_changed','scr.approval_added','drift.detected','drift.resolved','generation.started','generation.progress','generation.complete']"
+    severity: error
+
+body:
+  contract_kind: event_flow
+  contract_definition:
+    events:
+      - node.changed
+      - node.locked
+      - node.unlocked
+      - scr.created
+      - scr.status_changed
+      - scr.approval_added
+      - drift.detected
+      - drift.resolved
+      - generation.started
+      - generation.progress
+      - generation.complete
+    delivery: synchronous in-process fan-out (EventBus); re-emitted over Bun WebSocket per connected client
+    client_messages:
+      - "ping → pong"
+      - "replay { since } → stream change_log rows as node.changed events bracketed by replay.start / replay.end"
+  realization_file: src/ws/event-bus.ts
+
+# ── 6. Vibe Mode Formal Gate Invariants ─────────────────────────────────────
+---
+id: kizo:dev.glm.agent_orchestration.vibe_scripts.formal_gate_invariants
+stratum: interaction
+title: Vibe Mode Formal Gate Invariants
+description: |
+  Four invariants the Vibe Mode agent must never bypass. Copied verbatim
+  from FORMAL_GATE_INVARIANTS in src/agent/scripts.ts.
+
+revision: { major: A, iteration: 1, status: in_review }
+
+provenance:
+  derives_from: null
+  override_kind: net_new
+  authored_by: glm-reverse-engineer@A.1
+  authored_at: 2026-05-11T00:00:00Z
+
+body:
+  contract_kind: event_flow
+  contract_definition:
+    invariants:
+      - "Class I SCRs always route to platform-review for approval; the agent cannot self-approve."
+      - "auto-heal on live-state drift is only executed if the node's configured policy is auto-heal."
+      - "Waivers always carry a positive duration and produce an audit_event."
+      - "The agent may draft, propose, and submit — but never transition Under Review → Approved unilaterally."
+    enforcement: "Every card in SCRIPTS that mutates state issues a REST call against the regular routes; the agent never bypasses the gate."
+  realization_file: src/agent/scripts.ts

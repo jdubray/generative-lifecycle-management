@@ -1,0 +1,704 @@
+$schema: https://puffin.dev/glm/v1/sekkei.schema.json
+# ─────────────────────────────────────────────────────────────────────────────
+# CAPABILITIES — 16, bundled (A.1, derived from the TypeScript realization)
+# ─────────────────────────────────────────────────────────────────────────────
+---
+id: kizo:dev.glm.identity
+stratum: capability
+title: Identity & Access
+description: |
+  Authentication and authorization for users, sessions, API tokens, and the
+  per-workspace RBAC layer. Sessions are HMAC-signed cookies (7-day TTL).
+  API tokens are issued in the form `glm_<prefix-8>_<random-32hex>` and
+  stored as salted sha256 hashes with constant-time compare on validation.
+  RBAC has two tiers: organization-level UserRole and workspace-scoped
+  WorkspaceMemberRole; gate helpers throw ForbiddenError.
+
+  The auth middleware identifies callers in this order: Bearer API token,
+  then session cookie, then the test-only `x-test-user-id` header. The
+  auth routes expose passwordless dev login at /auth/login plus /logout
+  and /me. Workspace routes (/workspaces, /workspaces/:id,
+  /workspaces/:id/summary) live under the same Capability because the
+  workspace membership table is the principal RBAC scope.
+
+revision:
+  major: A
+  iteration: 1
+  status: in_review
+
+provenance:
+  derives_from:
+    id: kizo:dev.glm.identity
+    content_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  override_kind: with_override
+  authored_by: glm-reverse-engineer@A.1
+  authored_at: 2026-05-11T00:00:00Z
+
+relationships:
+  - { kind: composes-of, target: kizo:dev.glm.identity.api_token }
+  - { kind: composes-of, target: kizo:dev.glm.identity.api_token_repository }
+  - { kind: composes-of, target: kizo:dev.glm.identity.session }
+  - { kind: composes-of, target: kizo:dev.glm.identity.rbac }
+  - { kind: composes-of, target: kizo:dev.glm.identity.user_repository }
+  - { kind: composes-of, target: kizo:dev.glm.identity.workspace_repository }
+  - { kind: composes-of, target: kizo:dev.glm.identity.auth_middleware }
+  - { kind: composes-of, target: kizo:dev.glm.identity.auth_routes }
+  - { kind: composes-of, target: kizo:dev.glm.identity.workspace_routes }
+
+body:
+  user_value: |
+    A logged-in engineer sees the workspaces their organization owns, can
+    operate at the role their membership grants (owner/editor/viewer/agent),
+    and can issue / revoke an API token for headless automation.
+  boundary: |
+    Owns: identification, session cookies, API tokens, RBAC enforcement,
+    workspace membership lookups. Does NOT own: node authoring, FSM
+    transitions, generation, or any business logic of the GLM itself.
+---
+id: kizo:dev.glm.authoring
+stratum: capability
+title: Sekkei Authoring
+description: |
+  Node CRUD, structural body validation, where-used traversal, and the CEL
+  expression evaluator used by variant resolution. Every write goes through
+  the node repository which canonicalizes the body and writes
+  `sha256:<hex>` into content_hash; reads re-verify and raise
+  ContentHashMismatchError if drift is detected.
+
+  validateBody() enforces stratum-aware body shape (system/capability/
+  component/interaction with its contract discriminator/spec). The
+  where-used module returns direct + transitive consumers via upward BFS
+  over composes-of edges, used both by the routes and by reuse candidate
+  scanning. The CEL evaluator is a small home-grown tokenizer + parser
+  that supports comparisons, logical operators, `in`, dot-access
+  identifiers, list literals, and a `.length` accessor on strings/arrays;
+  it is consumed exclusively by the variant resolver's constraint step.
+
+revision:
+  major: A
+  iteration: 1
+  status: in_review
+
+provenance:
+  derives_from:
+    id: kizo:dev.glm.workbench.authoring
+    content_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  override_kind: with_override
+  authored_by: glm-reverse-engineer@A.1
+  authored_at: 2026-05-11T00:00:00Z
+
+relationships:
+  - { kind: composes-of, target: kizo:dev.glm.authoring.node_body_validator }
+  - { kind: composes-of, target: kizo:dev.glm.authoring.node_repository }
+  - { kind: composes-of, target: kizo:dev.glm.authoring.node_routes }
+  - { kind: composes-of, target: kizo:dev.glm.authoring.where_used }
+  - { kind: composes-of, target: kizo:dev.glm.authoring.cel_evaluator }
+
+body:
+  user_value: |
+    Engineers create, edit, and inspect sekkei nodes with confidence that
+    body shape is enforced server-side and that content_hash is recomputed
+    and re-verified on every read.
+  boundary: |
+    Owns: node CRUD + body validation + where-used + CEL expression
+    evaluation. Does NOT own: SCR review workflow (change_management),
+    variant pipeline (variant_resolution), or soft-lock acquisition
+    (collaboration).
+---
+id: kizo:dev.glm.collaboration
+stratum: capability
+title: Real-time Collaboration
+description: |
+  Soft-locks on individual nodes, append-only change log, in-process
+  workspace event bus, and the Bun ServerWebSocket fan-out to connected
+  clients. Soft-locks live in the edit_locks table keyed by (node_id,
+  user_id) with a 30-second route-level TTL; HTTP 423 LOCKED is returned
+  on contention.
+
+  The change_log table records node mutations with monotonic timestamps;
+  it powers both the dashboard activity feed and the WebSocket replay
+  endpoint. EventBus is per-workspace, in-process pub/sub with eleven
+  typed event variants. workspace-socket handles the WS welcome,
+  subscribe, ping/pong, and `replay { since }` messages.
+
+revision:
+  major: A
+  iteration: 1
+  status: in_review
+
+provenance:
+  derives_from:
+    id: kizo:dev.glm.workbench.collaboration
+    content_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  override_kind: with_override
+  authored_by: glm-reverse-engineer@A.1
+  authored_at: 2026-05-11T00:00:00Z
+
+relationships:
+  - { kind: composes-of, target: kizo:dev.glm.collaboration.edit_lock_repository }
+  - { kind: composes-of, target: kizo:dev.glm.collaboration.change_log_repository }
+  - { kind: composes-of, target: kizo:dev.glm.collaboration.event_bus }
+  - { kind: composes-of, target: kizo:dev.glm.collaboration.workspace_socket }
+
+body:
+  user_value: |
+    1–50 engineers can edit the same sekkei simultaneously and see each
+    other's edits with sub-second latency; the soft-lock prevents
+    simultaneous body edits at the node grain.
+  boundary: |
+    Owns: edit-lock storage + change-log feed + event bus + WS fan-out.
+    Does NOT own: node body validation, persistence, or RBAC.
+---
+id: kizo:dev.glm.change_management
+stratum: capability
+title: Change Management (SCR)
+description: |
+  Sekkei Change Requests — first-class entities with an 8-state FSM, a
+  paired approvals table, and a per-workspace promise-chain mutex that
+  serializes the transition from Approved to Implemented. SCRs have two
+  classes: Class I (contract change, requires platform-review approval)
+  and Class II (internal, solo-dev approval).
+
+  An SCR body carries `problem`, a typed `diffYaml` (lines tagged
+  context/add/remove/change), `targetNodes` (glm: ids), an `effectivity`,
+  an `impact { variantsAffected, tokensEst, cacheMissCount }`, and an
+  optional `returnReason`. On the `implement` event, scr_implementer
+  writes affected nodes' YAML to disk and creates a single ECN commit
+  via the git capability (signed when Class I and GLM_SIGN_COMMITS=true).
+
+revision:
+  major: A
+  iteration: 1
+  status: in_review
+
+provenance:
+  derives_from: null
+  override_kind: net_new
+  authored_by: glm-reverse-engineer@A.1
+  authored_at: 2026-05-11T00:00:00Z
+
+relationships:
+  - { kind: composes-of, target: kizo:dev.glm.change_management.scr_fsm }
+  - { kind: composes-of, target: kizo:dev.glm.change_management.scr_repository }
+  - { kind: composes-of, target: kizo:dev.glm.change_management.scr_routes }
+  - { kind: composes-of, target: kizo:dev.glm.change_management.scr_implementer }
+
+body:
+  user_value: |
+    Engineers draft an SCR, attach a typed diff, submit for review, and
+    on approval/implement see a single ECN git commit appear with all
+    affected node YAML files written deterministically.
+  boundary: |
+    Owns: SCR FSM + repository + routes + SCR→git commit service. Does
+    NOT own: drift detection, variant resolution, or generation.
+---
+id: kizo:dev.glm.variant_resolution
+stratum: capability
+title: Variant Resolution
+description: |
+  The six-step closure → bind → constrain → external-deps → cache-key →
+  sekkei.lock pipeline. resolve() walks composes-of + derives-from to
+  build the closure, applies parameter defaults + bindings (reporting
+  missing), validates every constraint via the CEL evaluator, collects
+  external dependencies, computes the cache_key hash from closure /
+  binding / design / generator / generation hashes, and emits a
+  sekkei.lock file pinning (id, major, content_hash) per node.
+
+  Variant and VariantRollout rows live in their own repository. Rollout
+  has a strict stage order — Released → Available-on-Channel →
+  Pinned-by-Variant → Generated-for-Instance → Deployed-to-dBOM — and
+  AC-20 refuses advance when pinRev === availableRev.
+
+revision:
+  major: A
+  iteration: 1
+  status: in_review
+
+provenance:
+  derives_from: null
+  override_kind: net_new
+  authored_by: glm-reverse-engineer@A.1
+  authored_at: 2026-05-11T00:00:00Z
+
+relationships:
+  - { kind: composes-of, target: kizo:dev.glm.variant_resolution.resolver }
+  - { kind: composes-of, target: kizo:dev.glm.variant_resolution.variant_repository }
+  - { kind: composes-of, target: kizo:dev.glm.variant_resolution.variant_routes }
+  - { kind: composes-of, target: kizo:dev.glm.variant_resolution.sekkei_lock }
+
+body:
+  user_value: |
+    Authors define variant points; the resolver emits a deterministic
+    sekkei.lock that pins exactly what was selected. Rollout state
+    advances one stage at a time with refusal-on-equal-rev safety.
+  boundary: |
+    Owns: closure walk, parameter binding, CEL constraint validation,
+    cache-key hashing, sekkei.lock serialization, variants + rollout
+    storage. Does NOT own: LLM dispatch, attestation, or git commit.
+---
+id: kizo:dev.glm.generation
+stratum: capability
+title: Generation Pipeline
+description: |
+  The LLM-backed regeneration surface. Pipeline orchestration computes a
+  cache key, probes the artifact cache, on miss invokes the LLM client,
+  computes the artifact digest, builds the in-toto Statement + DSSE
+  envelope, and persists rows into provenance_events +
+  generation_attestations.
+
+  LLM client is pluggable: FakeLlmClient for deterministic tests,
+  AnthropicLlmClient for the Messages API (default model
+  claude-sonnet-4-6, cache_control:ephemeral on prompt prefix). The
+  artifact cache has two backends: in-memory and a filesystem store
+  with atomic writes under `<prefix>/<rest>/<safe-filename>`. A simple
+  in-process FIFO queue caps concurrency.
+
+revision:
+  major: A
+  iteration: 1
+  status: in_review
+
+provenance:
+  derives_from:
+    id: kizo:dev.glm.engine.generation
+    content_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  override_kind: with_override
+  authored_by: glm-reverse-engineer@A.1
+  authored_at: 2026-05-11T00:00:00Z
+
+relationships:
+  - { kind: composes-of, target: kizo:dev.glm.generation.llm_client }
+  - { kind: composes-of, target: kizo:dev.glm.generation.pipeline }
+  - { kind: composes-of, target: kizo:dev.glm.generation.queue }
+  - { kind: composes-of, target: kizo:dev.glm.generation.artifact_cache }
+  - { kind: composes-of, target: kizo:dev.glm.generation.generation_routes }
+
+body:
+  user_value: |
+    Authors press regenerate on a subtree and receive the regenerated
+    artifacts with a server-recorded provenance event chain back to
+    the sekkei.lock that drove the run.
+  boundary: |
+    Owns: cache-key probe, LLM dispatch, artifact hashing, generation
+    route. Does NOT own: the attestation Statement/DSSE construction
+    itself (that's provenance) — it CALLS into provenance and stores
+    the resulting rows.
+---
+id: kizo:dev.glm.provenance
+stratum: capability
+title: Provenance & Attestation
+description: |
+  Builds and stores in-toto Statement v1 + DSSE envelope attestations
+  linking generated artifacts to their sekkei.lock + generator identity.
+  attestation_builder owns the producer side: HmacSigner (dev key, with
+  Ed25519 planned), buildStatement, buildDsseEnvelope, verifyDsseEnvelope,
+  decodeStatement, deterministic rekorEntryId/rekorUrl.
+
+  The provenance and attestation repositories own the store side. Routes
+  expose list, get, NDJSON export (AC-34), and server-side
+  re-verification (AC-35) of every persisted envelope.
+
+revision:
+  major: A
+  iteration: 1
+  status: in_review
+
+provenance:
+  derives_from:
+    id: kizo:dev.glm.audit
+    content_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  override_kind: with_override
+  authored_by: glm-reverse-engineer@A.1
+  authored_at: 2026-05-11T00:00:00Z
+
+relationships:
+  - { kind: composes-of, target: kizo:dev.glm.provenance.attestation_builder }
+  - { kind: composes-of, target: kizo:dev.glm.provenance.attestation_repository }
+  - { kind: composes-of, target: kizo:dev.glm.provenance.provenance_repository }
+  - { kind: composes-of, target: kizo:dev.glm.provenance.provenance_routes }
+
+body:
+  user_value: |
+    Every regenerated artifact has a verifiable DSSE-signed in-toto
+    Statement pinning its sekkei.lock + generator identity. Auditors
+    can stream NDJSON and re-verify the chain at any time.
+  boundary: |
+    Owns: in-toto Statement construction, DSSE encoding/signing/verifying,
+    persistence of provenance_events + generation_attestations, and the
+    provenance API. Does NOT own: LLM dispatch or cache key computation.
+---
+id: kizo:dev.glm.drift_reconciliation
+stratum: capability
+title: Drift Reconciliation
+description: |
+  Detects, classifies, and resolves drift between the sekkei's intended
+  hashes and what is actually running. classify() is a pure function
+  returning (status, kind, policy, shouldAutoHeal, detail).
+
+  Drift status values are Synced, Hash-Drifted, Live-Drifted, Suspended;
+  kinds are none, hash, live_state; policies are auto-heal, alert,
+  suspend. Routes expose list, sweep, resolve (heal | suspend | waiver |
+  scr; AC-26 waiver requires positive durationDays), and auto-heal
+  (AC-24, restricted to live-state drift on auto-heal-policy nodes).
+
+revision:
+  major: A
+  iteration: 1
+  status: in_review
+
+provenance:
+  derives_from: null
+  override_kind: net_new
+  authored_by: glm-reverse-engineer@A.1
+  authored_at: 2026-05-11T00:00:00Z
+
+relationships:
+  - { kind: composes-of, target: kizo:dev.glm.drift_reconciliation.drift_classifier }
+  - { kind: composes-of, target: kizo:dev.glm.drift_reconciliation.drift_repository }
+  - { kind: composes-of, target: kizo:dev.glm.drift_reconciliation.drift_routes }
+
+body:
+  user_value: |
+    Operators see live divergence between sekkei and deployment, can
+    auto-heal benign live-state drift, suspend a node mid-investigation,
+    or grant a time-bound waiver while drafting an SCR.
+  boundary: |
+    Owns: drift classification function, drift_records storage, and the
+    /drift API. Does NOT own: SCR creation (delegated to
+    change_management) or the audit_event side-effect of waivers (that's
+    observability).
+---
+id: kizo:dev.glm.reuse_management
+stratum: capability
+title: Reuse Management
+description: |
+  Identifies reuse candidates from the where-used graph and walks them
+  through a 4-stage promotion path. Stage order: Variant-Local →
+  Candidate-for-Promotion → Promoted-to-Library → Stewarded-by-Owner.
+
+  POST /reuse/find-candidates scans the graph (AC-28): anything with ≥2
+  direct dependents becomes a Variant-Local row. PUT /reuse/:rid/stage
+  advances one stage at a time; promotion past Candidate-for-Promotion
+  requires a steward (AC-30).
+
+revision:
+  major: A
+  iteration: 1
+  status: in_review
+
+provenance:
+  derives_from: null
+  override_kind: net_new
+  authored_by: glm-reverse-engineer@A.1
+  authored_at: 2026-05-11T00:00:00Z
+
+relationships:
+  - { kind: composes-of, target: kizo:dev.glm.reuse_management.reuse_repository }
+  - { kind: composes-of, target: kizo:dev.glm.reuse_management.reuse_routes }
+
+body:
+  user_value: |
+    Stewards see emerging reuse opportunities surface automatically and
+    can promote stable Components into a shared library without losing
+    their workspace-local invariants.
+  boundary: |
+    Owns: reuse_candidates storage + the 4-stage state machine + the
+    /reuse routes. Does NOT own: where-used itself (delegated to
+    authoring) or downstream SCR creation.
+---
+id: kizo:dev.glm.verification
+stratum: capability
+title: Sekkei Verification
+description: |
+  The 7-gate pure-function verifier — 1.envelope, 2.stratum_hierarchy,
+  2.b.role_consistency (system_role discriminator added with v1.1.9),
+  3.closure_completeness, 4.brief_coverage, 5.spec_coverage,
+  6.spec_quality. Pure inputs/outputs, no I/O.
+
+  runner loads nodes from the repository, runs gates, persists
+  verification_runs, appends an audit `verifier.run` event, and publishes
+  generation.complete on the EventBus. Routes expose POST
+  /workspaces/:id/verify, GET /verifier/runs, GET /verifier/runs/latest,
+  GET /verifier/runs/:id.
+
+revision:
+  major: A
+  iteration: 1
+  status: in_review
+
+provenance:
+  derives_from:
+    id: kizo:dev.glm.engine.verification
+    content_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  override_kind: with_override
+  authored_by: glm-reverse-engineer@A.1
+  authored_at: 2026-05-11T00:00:00Z
+
+relationships:
+  - { kind: composes-of, target: kizo:dev.glm.verification.gates }
+  - { kind: composes-of, target: kizo:dev.glm.verification.runner }
+  - { kind: composes-of, target: kizo:dev.glm.verification.verification_run_repository }
+  - { kind: composes-of, target: kizo:dev.glm.verification.verifier_routes }
+
+body:
+  user_value: |
+    Reviewers fire a verifier run on a workspace and see all 7 gate
+    outcomes inline; persisted runs make the verifier history
+    auditable.
+  boundary: |
+    Owns: pure gate functions, the runner, the run repository, and the
+    /verifier routes. Does NOT own: the spec.acceptance verifier
+    commands embedded in spec leaves (those are component-level).
+---
+id: kizo:dev.glm.agent_orchestration
+stratum: capability
+title: Agent Orchestration (Vibe Mode)
+description: |
+  The Vibe Mode demo runner — a 4-regex intent classifier that maps
+  free-text into one of four scripted scenarios (archive, multi, drift,
+  promote) plus 480 lines of hand-coded card sequences. NOT an LLM agent
+  harness; the LLM is the fallback path only.
+
+  scripts owns the scripted scenarios (card kinds: agent_text, plan,
+  console, clarifier, scr_draft, gate, choice, drift_card,
+  resolution_card, result) AND the FORMAL_GATE_INVARIANTS declaration
+  (4 things the agent must never bypass). Routes expose /vibe/scripts,
+  /vibe/intent, /vibe/continue, and /vibe/llm-fallback (AC-40: graceful
+  degradation when no LLM is configured).
+
+revision:
+  major: A
+  iteration: 1
+  status: in_review
+
+provenance:
+  derives_from: null
+  override_kind: net_new
+  authored_by: glm-reverse-engineer@A.1
+  authored_at: 2026-05-11T00:00:00Z
+
+relationships:
+  - { kind: composes-of, target: kizo:dev.glm.agent_orchestration.intent_classifier }
+  - { kind: composes-of, target: kizo:dev.glm.agent_orchestration.vibe_scripts }
+  - { kind: composes-of, target: kizo:dev.glm.agent_orchestration.vibe_routes }
+
+body:
+  user_value: |
+    A demo user types "archive a workspace" and sees a guided card flow
+    that turns into real REST calls against the normal authoring/SCR/
+    drift/reuse endpoints — never bypassing a formal gate.
+  boundary: |
+    Owns: intent classification, scripted scenarios, FORMAL_GATE_INVARIANTS,
+    Vibe Mode routes. Does NOT own: any irreversible action — every card
+    that mutates state goes through the regular REST routes.
+---
+id: kizo:dev.glm.git
+stratum: capability
+title: Git Integration
+description: |
+  Typed wrapper around the git CLI, plus all sekkei-specific git pieces:
+  notes manager, hook installer, ECN commit grammar, YAML node store,
+  and the per-workspace promise-chain mutex inside sekkei-git-service
+  that turns approved + implemented SCRs into ECN commits.
+
+  GitClient spawns the git CLI via child_process.spawnSync and exposes
+  init/config/add/commit (message via stdin)/show/log/rev-parse/branch/
+  checkout/tag/status-porcelain with typed errors. The YAML store writes
+  one file per node at nodes/<stratum>/<safe-glm-id>.yaml (`:` → `__`)
+  and verifies content_hash on read. ECN commit messages follow the
+  ECN: / Affected: / Why: / Regen required: / SCR: / Signed-off-by:
+  layout. Hooks installs pre-commit (verify_sekkei.py + null-byte) and
+  pre-receive (Affected: block + 6-gate verifier when GLM_DB_PATH +
+  GLM_WORKSPACE set) scripts.
+
+revision:
+  major: A
+  iteration: 1
+  status: in_review
+
+provenance:
+  derives_from: null
+  override_kind: net_new
+  authored_by: glm-reverse-engineer@A.1
+  authored_at: 2026-05-11T00:00:00Z
+
+relationships:
+  - { kind: composes-of, target: kizo:dev.glm.git.git_client }
+  - { kind: composes-of, target: kizo:dev.glm.git.git_notes }
+  - { kind: composes-of, target: kizo:dev.glm.git.hook_installer }
+  - { kind: composes-of, target: kizo:dev.glm.git.ecn_commit }
+  - { kind: composes-of, target: kizo:dev.glm.git.yaml_store }
+
+body:
+  user_value: |
+    SCR implementation produces ECN-formatted commits whose Affected:
+    block + Why: + Regen-required: are mechanically derivable, and
+    pre-commit/pre-receive hooks block bad pushes.
+  boundary: |
+    Owns: git CLI, git-notes, hooks, ECN grammar, YAML store. Does NOT
+    own: the SCR FSM, the verifier, or sekkei.lock generation.
+---
+id: kizo:dev.glm.persistence
+stratum: capability
+title: Persistence Foundation
+description: |
+  SQLite singleton open + migration runner + content-addressing primitive +
+  shared TypeScript domain types. db.ts applies WAL/NORMAL/FK ON pragmas
+  and a 5s busy timeout, runs migrations from NNNN_<slug>.sql files, and
+  records applied migrations in a table.
+
+  content-hash.ts is the canonical-JSON serializer and the sha256
+  HASH_PREFIX writer/verifier called by every repository. types.ts holds
+  the entire shared domain type surface (entities, body shapes by
+  stratum, supporting rows, SCR/Variant/Drift/Reuse/Provenance types).
+
+revision:
+  major: A
+  iteration: 1
+  status: in_review
+
+provenance:
+  derives_from:
+    id: kizo:dev.glm.persistence
+    content_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  override_kind: with_override
+  authored_by: glm-reverse-engineer@A.1
+  authored_at: 2026-05-11T00:00:00Z
+
+relationships:
+  - { kind: composes-of, target: kizo:dev.glm.persistence.db_bootstrap }
+  - { kind: composes-of, target: kizo:dev.glm.persistence.content_hash }
+  - { kind: composes-of, target: kizo:dev.glm.persistence.domain_types }
+
+body:
+  user_value: |
+    Every repository in the system shares one tested SQLite open path,
+    one canonical content-hash function, and one type vocabulary —
+    eliminating drift between modules.
+  boundary: |
+    Owns: db bootstrap + migration runner + content-hash function +
+    shared TS types. Does NOT own: any individual table's repository
+    (those live in the Capability that uses the table).
+---
+id: kizo:dev.glm.runtime
+stratum: capability
+title: Runtime & Middleware
+description: |
+  Bun.serve bootstrap, Hono app factory, the DI container that all
+  middleware/routes read through, and the cross-cutting middleware:
+  context, error, rate-limit, security-headers.
+
+  server.ts reads PORT + SESSION_SECRET, opens the DB, calls createApp,
+  and listens. app.ts wires the middleware stack and all /api/v1 route
+  groups in order. deps.ts exposes RuntimeDeps / Repositories /
+  AppDeps + buildRepositories(db). errorHandler maps
+  UnauthorizedError→401, ForbiddenError→403, NodeBodyValidationError→422,
+  InvalidScrTransitionError→409, ContentHashMismatchError→500.
+  rateLimit is an in-process token bucket (60 capacity, 10 refill/sec).
+  securityHeaders sets a strict CSP, X-Frame-Options:DENY, HSTS-on-HTTPS.
+
+revision:
+  major: A
+  iteration: 1
+  status: in_review
+
+provenance:
+  derives_from: null
+  override_kind: net_new
+  authored_by: glm-reverse-engineer@A.1
+  authored_at: 2026-05-11T00:00:00Z
+
+relationships:
+  - { kind: composes-of, target: kizo:dev.glm.runtime.server_entry }
+  - { kind: composes-of, target: kizo:dev.glm.runtime.app_factory }
+  - { kind: composes-of, target: kizo:dev.glm.runtime.deps_container }
+  - { kind: composes-of, target: kizo:dev.glm.runtime.context_middleware }
+  - { kind: composes-of, target: kizo:dev.glm.runtime.error_middleware }
+  - { kind: composes-of, target: kizo:dev.glm.runtime.rate_limit }
+  - { kind: composes-of, target: kizo:dev.glm.runtime.security_headers }
+
+body:
+  user_value: |
+    Operators get a single Bun process with deterministic startup, a
+    strict CSP, sensible rate limiting, and a uniform error contract.
+  boundary: |
+    Owns: Bun entry + Hono factory + DI container + runtime middleware.
+    Does NOT own: any route group (those are owned by their Capability).
+---
+id: kizo:dev.glm.observability
+stratum: capability
+title: Observability
+description: |
+  Structured per-request logging (with X-Request-Id) and the append-only
+  audit_events feed. Logging is suppressed under NODE_ENV=test and
+  skipped for static paths. The audit repository exposes append /
+  listByWorkspace / listByType and is written by the verifier runner,
+  the drift waiver flow, and other side-effectful operations.
+
+revision:
+  major: A
+  iteration: 1
+  status: in_review
+
+provenance:
+  derives_from:
+    id: kizo:dev.glm.observability
+    content_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  override_kind: with_override
+  authored_by: glm-reverse-engineer@A.1
+  authored_at: 2026-05-11T00:00:00Z
+
+relationships:
+  - { kind: composes-of, target: kizo:dev.glm.observability.audit_repository }
+  - { kind: composes-of, target: kizo:dev.glm.observability.request_logging }
+
+body:
+  user_value: |
+    Operators can grep request logs by request id, and auditors can
+    list every workspace event by type.
+  boundary: |
+    Owns: request logging middleware + audit_events store. Does NOT own:
+    provenance attestations (those are a separate Capability).
+---
+id: kizo:dev.glm.distribution
+stratum: capability
+title: Distribution (PWA Shell + Static Serving)
+description: |
+  Static-asset serving for the PWA shell. static_routes mounts /,
+  /login, /manifest.json, /sw.js (with Service-Worker-Allowed: /), and
+  /public/* with path-traversal blocked.
+
+  The PWA shell itself is a vanilla-JS bundle with no build step: an
+  api client, observable store, hash router, WS client, soft-lock
+  helper, offline write queue, and a top-level app boot. Ten view
+  modules (dashboard, change-management, drift, effectivity, provenance,
+  reuse, sekkei-browser, variants, vibe-mode, where-used) sit alongside
+  ten UI atoms (class-badge, diff-block, empty, hash, index, kv, section,
+  status-pill, stratum-tag, yaml-block). A service worker provides
+  read-through cache for offline read.
+
+revision:
+  major: A
+  iteration: 1
+  status: in_review
+
+provenance:
+  derives_from:
+    id: kizo:dev.glm.distribution
+    content_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  override_kind: with_override
+  authored_by: glm-reverse-engineer@A.1
+  authored_at: 2026-05-11T00:00:00Z
+
+relationships:
+  - { kind: composes-of, target: kizo:dev.glm.distribution.static_routes }
+  - { kind: composes-of, target: kizo:dev.glm.distribution.pwa_shell }
+
+body:
+  user_value: |
+    Users install the GLM as a PWA, get a usable offline read experience,
+    and get path-traversal-safe static delivery in the same process as
+    the API.
+  boundary: |
+    Owns: static serving + the entire client-side bundle. Does NOT own:
+    any API behavior or persistence.

@@ -1,0 +1,17 @@
+{
+  "name": "Puffin GLM",
+  "short_name": "GLM",
+  "description": "Generative lifecycle management for sekkei-driven design",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F7F6F2",
+  "theme_color": "#c84426",
+  "icons": [
+    {
+      "src": "/public/assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

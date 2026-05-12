@@ -1,15 +1,34 @@
 # Node / Bun
-todo-mvc/src/node_modules/
-todo-mvc/src/bun.lock
-todo-mvc/src/.bun/
+node_modules/
+.bun/
+examples/todo-mvc/src/node_modules/
+examples/todo-mvc/src/bun.lock
+examples/todo-mvc/src/.bun/
+examples/baanbaan-pos/
+
+# Build output
+dist/
+build/
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
 
 # Runtime data
+data/
+repos/
 todo-mvc/src/data/
 *.db
 *.db-shm
 *.db-wal
 
-# Playwright artifacts
+# Test artifacts
+coverage/
+tests/e2e/test-results/
+tests/e2e/playwright-report/
+tests/e2e/blob-report/
+tests/e2e/playwright/.cache/
 todo-mvc/src/test-results/
 todo-mvc/src/playwright-report/
 todo-mvc/src/blob-report/
@@ -18,6 +37,22 @@ todo-mvc/src/playwright/.cache/
 # OS / editor noise
 .DS_Store
 Thumbs.db
+.vscode/
+.idea/
+
+# Local agent / tooling state (per-developer, not source)
+.claude/
+.puffin/
+.cursor/
+.aider*
+.cache/
+
+# Scratch / temp files at the repo root
+*.tmp
+.commit-msg-*.tmp
+*.bak
+*.swp
+compass_artifact_*.md
 
 # Python (specification/validate.py byproducts)
 __pycache__/

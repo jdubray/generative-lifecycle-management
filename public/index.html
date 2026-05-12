@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#c84426" />
+    <title>Puffin GLM</title>
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="stylesheet" href="/public/styles/tokens.css" />
+    <link rel="stylesheet" href="/public/styles/app.css" />
+  </head>
+  <body>
+    <div id="root" class="app">
+      <header class="topbar" id="topbar">
+        <div class="brand"><span class="mark" aria-hidden="true"></span>Puffin GLM <small>generative lifecycle management</small></div>
+        <div class="divider" aria-hidden="true"></div>
+        <div class="proj" id="topbar-project">
+          <span class="id mono">—</span>
+          <span class="rev mono">—</span>
+        </div>
+        <div class="grow"></div>
+        <div class="lock" id="topbar-lock"><span class="dot" aria-hidden="true"></span><span class="mono">no lock</span></div>
+        <div class="divider" aria-hidden="true"></div>
+        <div class="user mono" id="topbar-user">…</div>
+      </header>
+      <div class="body">
+        <nav class="rail" id="rail">
+          <!-- populated by app.js -->
+        </nav>
+        <main class="main" id="main" tabindex="-1">
+          <div class="loading">loading…</div>
+        </main>
+      </div>
+    </div>
+    <script type="module" src="/public/js/app.js"></script>
+  </body>
+</html>

@@ -28,6 +28,21 @@ regenerate into working software.
 │   ├── validate.py                 Schema validator (schema gate only)
 │   └── VALIDATION_REPORT.md
 │
+├── docs/                    Functional + technical spec, implementation plan, ADRs
+├── src/                     GLM workbench — Bun + Hono server (TypeScript)
+│   ├── server/                     Hono app + routes + middleware
+│   ├── repository/                 bun:sqlite repositories (WAL, FK on)
+│   ├── domain/                     Pure logic: SCR FSM, variant resolver, CEL, …
+│   ├── generation/                 LLM pipeline + DSSE attestations
+│   ├── git/                        YAML store + ECN commits + sekkei.lock + hooks
+│   ├── verifier/                   6-gate verifier (+ 2.b system_role)
+│   ├── agent/                      Vibe Mode scenarios + intent classifier
+│   └── auth/                       Signed-cookie sessions + API tokens
+├── public/                  PWA frontend — vanilla ES modules, no bundler
+├── migrations/              Numbered SQLite migrations (applied at boot)
+├── scripts/                 verify / backup / restore / migrate / seed / loadtest
+├── tests/                   bun:test unit + integration (279 cases)
+│
 ├── mockup/                  Interactive UX prototype of the GLM workbench
 │                            (deployed to GitHub Pages — see mockup/README.md)
 │
@@ -43,6 +58,103 @@ regenerate into working software.
 A larger reverse-engineered sekkei — `kizo:food.fullservicerestaurant @ A.0`
 (~170 nodes, distilled from a real POS) — is referenced by the specification but
 not committed here.
+
+---
+
+## Run the GLM workbench
+
+The workbench is a Bun + Hono server on top of a single SQLite file, with a
+no-bundler PWA at `public/`. Prereqs: **Bun ≥ 1.1** and **git ≥ 2.40**.
+
+### Install
+
+```sh
+bun install                       # installs hono + yaml + biome + bun-types
+cp .env.example .env              # then edit: SESSION_SECRET, GLM_DB_PATH, …
+```
+
+A 32-byte session secret:
+
+```sh
+bun -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
+```
+
+### Start the dev server
+
+```sh
+bun run dev                       # http://localhost:3000, --watch enabled
+```
+
+First request applies any pending migrations to `GLM_DB_PATH` (defaults to
+`./data/glm.db`). The PWA shell is at `/`; the dev login is at `/login` —
+type any email to start an `editor`-role session. REST surface lives under
+`/api/v1/...`; OpenAPI-shaped contract is in `docs/glm_functional_technical_spec.md` §7.
+
+### First-time seed
+
+The PWA needs at least one workspace to drop you into. After your first
+`/login`, run the seeder once — it creates a `demo` workspace and adds every
+existing user as `owner`:
+
+```sh
+bun run seed                      # idempotent; safe to re-run
+# Options:
+#   bun run seed -- --slug=foo --name="Foo Workspace"
+#   bun run seed -- --user=alice@example.com
+```
+
+Then reload `http://localhost:3000` — the Dashboard renders against the new
+workspace.
+
+### Bootstrap an existing sekkei (import)
+
+GLM's primary onboarding path is to import an existing on-disk sekkei into a
+workspace. The bundled `./sekkei/` directory is the GLM's own reverse-engineered
+sekkei (`kizo:dev.glm @ A.1` — 1 system, 16 capabilities, 66 components, 6
+interactions). To bootstrap it as a `glm-self` workspace owned by you:
+
+```sh
+bun run scripts/import-sekkei.ts \
+  --path=./sekkei \
+  --workspace-slug=glm-self \
+  --workspace-name="GLM (self)" \
+  --owner=you@example.com
+```
+
+Idempotent: a re-run against an unchanged tree is a no-op. After an edit to
+any `*.yaml` under `./sekkei/`, re-running updates only nodes whose
+canonical body hash changed. Pass `--dry-run` to walk + parse + report
+without persisting anything.
+
+Open `http://localhost:3000/?workspace=glm-self` to land in the imported
+workspace.
+
+### Tests, lint, typecheck
+
+```sh
+bun test                          # 311 cases across unit + integration (~4 s)
+bun run lint                      # biome
+bunx tsc --noEmit                 # strict TS
+```
+
+### Useful scripts
+
+```sh
+bun run scripts/import-sekkei.ts --path=./sekkei --workspace-slug=glm-self \
+  --workspace-name="GLM (self)" --owner=you@example.com
+bun run scripts/verify.ts --workspace=<slug>     # run the 6-gate verifier
+bun run scripts/backup.ts --db=./data/glm.db --out=./backups/glm.db
+bun run scripts/restore.ts --backup=./backups/glm.db --db=./data/glm.db
+bun run scripts/loadtest.ts --workspace=ws-1 \
+  --node=glm:component.web --editors=50 --duration=30
+```
+
+### Production
+
+A single-binary build + systemd / Docker recipe, plus the
+backup / restore / verify / hook-installer playbook, lives in
+[`docs/deploying.md`](docs/deploying.md). Architecture decisions are in
+[`docs/adr/`](docs/adr/).
 
 ---
 

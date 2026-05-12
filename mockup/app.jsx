@@ -2,6 +2,7 @@
    Puffin GLM — main shell
 ---------------------------------------------------------------------------- */
 const NAV = [
+  { id: "vibe",        n: "✦",  label: "Vibe Mode",             badge: null,         comp: () => <VibeView/> },
   { id: "dashboard",   n: "00", label: "Dashboard",            badge: null,         comp: () => <DashboardView/> },
   { id: "sekkei",      n: "01", label: "Sekkei Browser",       badge: NODES.length, comp: () => <SekkeiView/> },
   { id: "changes",     n: "02", label: "Change Management",    badge: SCRS.length,  comp: () => <ChangesView/> },
@@ -62,15 +63,15 @@ function App() {
       <div className="body">
         <nav className="rail">
           <div className="group">Overview</div>
-          {NAV.slice(0, 1).map(it => (
+          {NAV.slice(0, 2).map(it => (
             <NavItem key={it.id} it={it} active={tab===it.id} onClick={()=>setTab(it.id)} />
           ))}
           <div className="group">Design</div>
-          {NAV.slice(1, 2).map(it => (
+          {NAV.slice(2, 3).map(it => (
             <NavItem key={it.id} it={it} active={tab===it.id} onClick={()=>setTab(it.id)} />
           ))}
           <div className="group">Lifecycle processes</div>
-          {NAV.slice(2).map(it => (
+          {NAV.slice(3).map(it => (
             <NavItem key={it.id} it={it} active={tab===it.id} onClick={()=>setTab(it.id)} />
           ))}
           <div style={{height:24}}></div>

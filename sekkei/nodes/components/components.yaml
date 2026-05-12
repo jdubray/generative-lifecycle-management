@@ -1,0 +1,1006 @@
+$schema: https://puffin.dev/glm/v1/sekkei.schema.json
+# ─────────────────────────────────────────────────────────────────────────────
+# COMPONENTS — bundled (A.1, one per src/ module after reverse-engineering)
+# Each Component has body.realization_file pointing at the actual TS file.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ───── identity ────────────────────────────────────────────────────────────
+---
+id: kizo:dev.glm.identity.api_token
+stratum: component
+title: API Token Issuer / Validator
+description: |
+  Issues + validates API tokens of the form `glm_<prefix-8>_<random-32hex>`.
+  Tokens are stored as sha256 hashes with per-token salt; validation uses
+  constant-time compare and consults findCandidatesByPrefix on the
+  repository. readBearer parses the Authorization header.
+revision: { major: A, iteration: 1, status: in_review }
+provenance:
+  derives_from: null
+  override_kind: net_new
+  authored_by: glm-reverse-engineer@A.1
+  authored_at: 2026-05-11T00:00:00Z
+body:
+  boundary: "Owns: token format, hash, validation. Does NOT own: storage (delegates to api_token_repository)."
+  runtime: in_process
+  runtime_note: "pure (no I/O beyond the repository call)"
+  realization_file: src/auth/api-token.ts
+---
+id: kizo:dev.glm.identity.api_token_repository
+stratum: component
+title: API Token Repository
+description: |
+  CRUD on the api_tokens table — insert, findCandidatesByPrefix, touchLastUsed.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: api_tokens table CRUD. Does NOT own: hashing or token format."
+  runtime: in_process
+  runtime_note: "bun:sqlite (synchronous)"
+  realization_file: src/repository/api-token-repository.ts
+---
+id: kizo:dev.glm.identity.session
+stratum: component
+title: Session Cookie
+description: |
+  Signed-cookie session module. HMAC-SHA256, 7-day default TTL, cookie name
+  glm_session. Exposes signSession, verifySession, buildSetCookie,
+  buildClearCookie, readSessionCookie, generateSecret.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: session-cookie format. Does NOT own: login routes or RBAC."
+  runtime: in_process
+  runtime_note: "pure (node:crypto)"
+  realization_file: src/auth/session.ts
+---
+id: kizo:dev.glm.identity.rbac
+stratum: component
+title: RBAC Gates
+description: |
+  Two-layer role check — UserRole at the org tier, WorkspaceMemberRole at
+  the workspace tier. requireUserRole + requireMemberRole throw ForbiddenError.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: role-check helpers. Does NOT own: role assignment."
+  runtime: in_process
+  runtime_note: "pure"
+  realization_file: src/auth/roles.ts
+---
+id: kizo:dev.glm.identity.user_repository
+stratum: component
+title: User Repository
+description: |
+  CRUD on the users table — insert, findById, findByEmail.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: users table CRUD. Does NOT own: session or token issuance."
+  runtime: in_process
+  runtime_note: "bun:sqlite"
+  realization_file: src/repository/user-repository.ts
+---
+id: kizo:dev.glm.identity.workspace_repository
+stratum: component
+title: Workspace Repository
+description: |
+  Repository over workspaces + workspace_members tables.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: workspaces + memberships table CRUD. Does NOT own: role checks."
+  runtime: in_process
+  runtime_note: "bun:sqlite"
+  realization_file: src/repository/workspace-repository.ts
+---
+id: kizo:dev.glm.identity.auth_middleware
+stratum: component
+title: Auth Middleware
+description: |
+  identify() tries Bearer token → session cookie → test header (x-test-user-id)
+  and sets c.var.principal. requireAuth + requirePrincipal helpers. Defines
+  the AppEnv type used across all routes.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: principal identification + AppEnv. Does NOT own: route policy."
+  runtime: in_process
+  runtime_note: "hono middleware"
+  realization_file: src/server/middleware/auth.ts
+---
+id: kizo:dev.glm.identity.auth_routes
+stratum: component
+title: Auth Routes
+description: |
+  POST /auth/login (passwordless dev login), POST /auth/logout, GET /auth/me.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: /auth route group. Does NOT own: session or token format."
+  runtime: in_process
+  runtime_note: "hono routes"
+  realization_file: src/server/routes/auth.ts
+---
+id: kizo:dev.glm.identity.workspace_routes
+stratum: component
+title: Workspace Routes
+description: |
+  GET /workspaces, GET /workspaces/:id, GET /workspaces/:id/summary (dashboard
+  aggregations).
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: /workspaces route group. Does NOT own: membership editing."
+  runtime: in_process
+  runtime_note: "hono routes"
+  realization_file: src/server/routes/workspaces.ts
+
+# ───── authoring ───────────────────────────────────────────────────────────
+---
+id: kizo:dev.glm.authoring.node_body_validator
+stratum: component
+title: Node Body Validator
+description: |
+  Stratum-aware body shape validation. Both tagged-result (validateBody) and
+  throwing (assertValidBody) variants. NodeBodyValidationError carries the
+  field path of the first failure.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: body shape rules. Does NOT own: content_hash or persistence."
+  runtime: in_process
+  runtime_note: "pure"
+  realization_file: src/domain/node.ts
+---
+id: kizo:dev.glm.authoring.node_repository
+stratum: component
+title: Node Repository
+description: |
+  Repository over nodes + node_parameters + node_constraints +
+  node_relationships. Computes content_hash on write; verifies on read and
+  raises ContentHashMismatchError on drift.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: nodes table family. Does NOT own: body validation."
+  runtime: in_process
+  runtime_note: "bun:sqlite"
+  realization_file: src/repository/node-repository.ts
+---
+id: kizo:dev.glm.authoring.node_routes
+stratum: component
+title: Node Routes
+description: |
+  Node CRUD plus lock acquire/release/heartbeat plus where-used queries.
+  Returns HTTP 423 LOCKED on soft-lock contention.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: /nodes route group + lock route bindings. Does NOT own: lock storage."
+  runtime: in_process
+  runtime_note: "hono routes"
+  realization_file: src/server/routes/nodes.ts
+---
+id: kizo:dev.glm.authoring.where_used
+stratum: component
+title: Where-Used Traversal
+description: |
+  directDependents + transitiveConsumers (BFS upward) + whereUsed +
+  estimateImpact. Pure functions over the relationships graph.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: where-used + impact estimate. Does NOT own: reuse promotion."
+  runtime: in_process
+  runtime_note: "pure"
+  realization_file: src/domain/relationships.ts
+---
+id: kizo:dev.glm.authoring.cel_evaluator
+stratum: component
+title: CEL Evaluator
+description: |
+  Minimal CEL-style expression evaluator — tokenize → parse → evaluate.
+  Supports comparisons, logical operators, `in`, dot-access identifiers,
+  list literals, and a `.length` accessor on strings/arrays. Returns
+  {passed, reason} via evaluateConstraint() — never throws.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: CEL tokenizer + parser + evaluator. Used exclusively by variant resolver."
+  runtime: in_process
+  runtime_note: "pure"
+  realization_file: src/domain/cel.ts
+
+# ───── collaboration ───────────────────────────────────────────────────────
+---
+id: kizo:dev.glm.collaboration.edit_lock_repository
+stratum: component
+title: Edit-Lock Repository
+description: |
+  Soft-lock storage for the node-grain editing protocol. Schema
+  (node_id, user_id, acquired_at, heartbeat_at). find + acquire +
+  heartbeat + release + delete. 30-second route-level TTL per spec §6.2.
+  HTTP 423 LOCKED is returned at the route layer on contention.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: edit_locks table. Does NOT own: route policy or 423 response."
+  runtime: in_process
+  runtime_note: "bun:sqlite"
+  realization_file: src/repository/edit-lock-repository.ts
+---
+id: kizo:dev.glm.collaboration.change_log_repository
+stratum: component
+title: Change Log Repository
+description: |
+  Append-only change_log feed of node mutations. append + listSince +
+  listLatest. Powers WebSocket replay and the dashboard activity panel.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: change_log table. Does NOT own: fan-out or replay protocol."
+  runtime: in_process
+  runtime_note: "bun:sqlite"
+  realization_file: src/repository/change-log-repository.ts
+---
+id: kizo:dev.glm.collaboration.event_bus
+stratum: component
+title: Workspace Event Bus
+description: |
+  Workspace-scoped in-process pub/sub. Synchronous fan-out. Eleven typed
+  event variants — node.changed, node.locked, node.unlocked, scr.created,
+  scr.status_changed, scr.approval_added, drift.detected, drift.resolved,
+  generation.started, generation.progress, generation.complete.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: in-process pub/sub. Does NOT own: socket framing."
+  runtime: in_process
+  runtime_note: "pure"
+  realization_file: src/ws/event-bus.ts
+---
+id: kizo:dev.glm.collaboration.workspace_socket
+stratum: component
+title: Workspace WebSocket Handler
+description: |
+  Bun ServerWebSocket per-socket handler. On open → welcome + subscribe.
+  Inbound messages: ping → pong; replay { since } → stream change_log rows
+  as node.changed events bracketed by replay.start / replay.end.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: per-socket framing + replay protocol. Does NOT own: pub/sub itself."
+  runtime: in_process
+  runtime_note: "Bun ServerWebSocket"
+  realization_file: src/ws/workspace-socket.ts
+
+# ───── change_management ───────────────────────────────────────────────────
+---
+id: kizo:dev.glm.change_management.scr_fsm
+stratum: component
+title: SCR FSM
+description: |
+  Pure FSM module — nextStatus, apply, canApply, isTerminal. Eight states
+  (Draft / Submitted / Under Review / Approved / Returned / Rejected /
+  Implemented / Released) and eight events (submit/startReview/approve/
+  return/reject/reopen/implement/release).
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: SCR transition rules. Does NOT own: persistence or git commit."
+  runtime: in_process
+  runtime_note: "pure"
+  realization_file: src/domain/scr.ts
+---
+id: kizo:dev.glm.change_management.scr_repository
+stratum: component
+title: SCR Repository
+description: |
+  Repository over scrs + scr_approvals tables — insert, setStatus, findById,
+  listByStatus, upsertApproval, listApprovals.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: scrs + scr_approvals tables. Does NOT own: FSM or git side-effects."
+  runtime: in_process
+  runtime_note: "bun:sqlite"
+  realization_file: src/repository/scr-repository.ts
+---
+id: kizo:dev.glm.change_management.scr_routes
+stratum: component
+title: SCR Routes
+description: |
+  SCR CRUD + status transitions + approvals. On the `implement` event,
+  delegates to commitScrImplementation when a git client is registered.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: /scrs route group. Does NOT own: FSM rules."
+  runtime: in_process
+  runtime_note: "hono routes"
+  realization_file: src/server/routes/scrs.ts
+---
+id: kizo:dev.glm.change_management.scr_implementer
+stratum: component
+title: SCR Implementer (Git Service)
+description: |
+  Turns an approved + implemented SCR into one ECN git commit.
+  Per-workspace promise-chain mutex serializes implements. Writes the
+  target nodes' YAML, stages, commits (signed when Class I and
+  GLM_SIGN_COMMITS=true).
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: per-workspace SCR→commit mutex. Does NOT own: git CLI itself."
+  runtime: in_process
+  runtime_note: "depends on git CLI + yaml store"
+  realization_file: src/git/sekkei-git-service.ts
+
+# ───── variant_resolution ──────────────────────────────────────────────────
+---
+id: kizo:dev.glm.variant_resolution.resolver
+stratum: component
+title: Variant Resolver
+description: |
+  Six-step variant resolution pipeline. Pure resolve() — closure walk →
+  parameter binding → constraint validation (CEL) → external dep collection
+  → cache key hash computation → sekkei.lock entry emission.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: 6-step pipeline. Does NOT own: sekkei.lock file serialization."
+  runtime: in_process
+  runtime_note: "pure"
+  realization_file: src/domain/variant.ts
+---
+id: kizo:dev.glm.variant_resolution.variant_repository
+stratum: component
+title: Variant Repository
+description: |
+  Repository over the variants + variant_rollout tables.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: variants + variant_rollout tables. Does NOT own: rollout policy."
+  runtime: in_process
+  runtime_note: "bun:sqlite"
+  realization_file: src/repository/variant-repository.ts
+---
+id: kizo:dev.glm.variant_resolution.variant_routes
+stratum: component
+title: Variant Routes
+description: |
+  Variants CRUD + resolve + rollout-advance. Rollout has a strict 5-stage
+  order — Released → Available-on-Channel → Pinned-by-Variant →
+  Generated-for-Instance → Deployed-to-dBOM. AC-20 refuses advance when
+  pinRev === availableRev.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: /variants route group. Does NOT own: closure walk."
+  runtime: in_process
+  runtime_note: "hono routes"
+  realization_file: src/server/routes/variants.ts
+---
+id: kizo:dev.glm.variant_resolution.sekkei_lock
+stratum: component
+title: sekkei.lock Serializer
+description: |
+  YAML serializer / parser for sekkei.lock. Deterministic key order.
+  Exposes lockHash for content-addressing the lock file itself.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: sekkei.lock format. Does NOT own: the closure walk."
+  runtime: in_process
+  runtime_note: "pure (yaml + node:crypto)"
+  realization_file: src/git/sekkei-lock.ts
+
+# ───── generation ──────────────────────────────────────────────────────────
+---
+id: kizo:dev.glm.generation.llm_client
+stratum: component
+title: LLM Client (Anthropic + Fake)
+description: |
+  LLM provider abstraction. FakeLlmClient supplies canned responses for
+  tests. AnthropicLlmClient calls the Messages API via fetch with
+  cache_control:ephemeral on the prompt prefix; default model
+  claude-sonnet-4-6.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: LLM provider abstraction. Does NOT own: caching or attestation."
+  runtime: in_process
+  runtime_note: "fetch (Anthropic) or pure (Fake)"
+  realization_file: src/generation/llm-client.ts
+---
+id: kizo:dev.glm.generation.pipeline
+stratum: component
+title: Generation Pipeline
+description: |
+  Generation orchestrator. compute cache key → probe cache → on miss
+  invoke LLM → compute artifact digest → build Statement + DSSE → persist
+  provenance_events + generation_attestations.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: the pipeline glue. Calls into attestation + cache + LLM client."
+  runtime: in_process
+  runtime_note: "pure (orchestration only)"
+  realization_file: src/generation/pipeline.ts
+---
+id: kizo:dev.glm.generation.queue
+stratum: component
+title: Generation Queue
+description: |
+  In-process FIFO queue with a concurrency cap. QueuedJob + JobHandler +
+  JobResult. Pure.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: FIFO queue + concurrency cap. Does NOT own: job semantics."
+  runtime: in_process
+  runtime_note: "pure"
+  realization_file: src/generation/queue.ts
+---
+id: kizo:dev.glm.generation.artifact_cache
+stratum: component
+title: Artifact Cache
+description: |
+  Content-addressed cache for generated artifacts. InMemoryGenerationCache
+  for tests, FileSystemGenerationCache for production (atomic writes into
+  `<prefix>/<rest>/<safe-filename>` with `/`/`\` → `__SLASH__`).
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: cache backends. Does NOT own: cache key derivation (that's the resolver)."
+  runtime: in_process
+  runtime_note: "filesystem or in-memory"
+  realization_file: src/generation/cache.ts
+---
+id: kizo:dev.glm.generation.generation_routes
+stratum: component
+title: Generation Routes
+description: |
+  POST /workspaces/:id/generate — runs runPipeline synchronously, emits
+  generation.complete on the EventBus.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: /generate route. Does NOT own: pipeline semantics."
+  runtime: in_process
+  runtime_note: "hono routes"
+  realization_file: src/server/routes/generation.ts
+
+# ───── provenance ──────────────────────────────────────────────────────────
+---
+id: kizo:dev.glm.provenance.attestation_builder
+stratum: component
+title: Attestation Builder (in-toto + DSSE)
+description: |
+  in-toto Statement v1 + DSSE envelope. HmacSigner (dev key; Ed25519
+  planned). buildStatement + buildDsseEnvelope + verifyDsseEnvelope +
+  decodeStatement + deterministic rekorEntryId / rekorUrl.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: Statement + DSSE construction. Does NOT own: persistence."
+  runtime: in_process
+  runtime_note: "pure (node:crypto)"
+  realization_file: src/generation/attestation.ts
+---
+id: kizo:dev.glm.provenance.attestation_repository
+stratum: component
+title: Attestation Repository
+description: |
+  CRUD on generation_attestations (DSSE envelope + Statement persisted
+  alongside their provenance event).
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: generation_attestations table. Does NOT own: building or verifying."
+  runtime: in_process
+  runtime_note: "bun:sqlite"
+  realization_file: src/repository/attestation-repository.ts
+---
+id: kizo:dev.glm.provenance.provenance_repository
+stratum: component
+title: Provenance Repository
+description: |
+  CRUD on provenance_events — insert, findById, listByWorkspace,
+  listBySubject.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: provenance_events table. Does NOT own: attestation envelope."
+  runtime: in_process
+  runtime_note: "bun:sqlite"
+  realization_file: src/repository/provenance-repository.ts
+---
+id: kizo:dev.glm.provenance.provenance_routes
+stratum: component
+title: Provenance Routes
+description: |
+  List + get provenance events. NDJSON export (AC-34). Server-side
+  re-verification of stored DSSE envelopes (AC-35).
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: /provenance route group. Does NOT own: envelope construction."
+  runtime: in_process
+  runtime_note: "hono routes"
+  realization_file: src/server/routes/provenance.ts
+
+# ───── drift_reconciliation ────────────────────────────────────────────────
+---
+id: kizo:dev.glm.drift_reconciliation.drift_classifier
+stratum: component
+title: Drift Classifier
+description: |
+  Pure classify({desiredHash, observedHash, kind, policy, suspended})
+  returning {status, kind, policy, shouldAutoHeal, detail}. Plus
+  selectAutoHealable filter. Statuses: Synced / Hash-Drifted / Live-Drifted /
+  Suspended. Kinds: none / hash / live_state. Policies: auto-heal / alert /
+  suspend.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: drift classification rules. Does NOT own: persistence or healing action."
+  runtime: in_process
+  runtime_note: "pure"
+  realization_file: src/domain/drift.ts
+---
+id: kizo:dev.glm.drift_reconciliation.drift_repository
+stratum: component
+title: Drift Repository
+description: |
+  CRUD on drift_records — upsert, findById, listByStatus.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: drift_records table. Does NOT own: classification."
+  runtime: in_process
+  runtime_note: "bun:sqlite"
+  realization_file: src/repository/drift-repository.ts
+---
+id: kizo:dev.glm.drift_reconciliation.drift_routes
+stratum: component
+title: Drift Routes
+description: |
+  GET /drift, POST /drift/sweep, PUT /drift/:record_id/resolve (actions:
+  heal / suspend / waiver / scr; AC-26 waiver needs positive durationDays),
+  POST /drift/auto-heal (AC-24).
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: /drift route group. Does NOT own: classifier rules."
+  runtime: in_process
+  runtime_note: "hono routes"
+  realization_file: src/server/routes/drift.ts
+
+# ───── reuse_management ────────────────────────────────────────────────────
+---
+id: kizo:dev.glm.reuse_management.reuse_repository
+stratum: component
+title: Reuse Repository
+description: |
+  CRUD on reuse_candidates — insert, findById, list, listByStage, update,
+  delete.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: reuse_candidates table. Does NOT own: stage policy."
+  runtime: in_process
+  runtime_note: "bun:sqlite"
+  realization_file: src/repository/reuse-repository.ts
+---
+id: kizo:dev.glm.reuse_management.reuse_routes
+stratum: component
+title: Reuse Routes
+description: |
+  List / create / stage-advance reuse candidates. POST /reuse/find-candidates
+  scans the where-used graph (AC-28). PUT /reuse/:rid/stage advances by one
+  stage; promotion past Candidate-for-Promotion requires a steward (AC-30).
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: /reuse route group + the 4-stage state machine in route code."
+  runtime: in_process
+  runtime_note: "hono routes"
+  realization_file: src/server/routes/reuse.ts
+
+# ───── verification ────────────────────────────────────────────────────────
+---
+id: kizo:dev.glm.verification.gates
+stratum: component
+title: Verifier Gates (7-Gate Pure Functions)
+description: |
+  Pure-function 7-gate verifier — 1.envelope, 2.stratum_hierarchy,
+  2.b.role_consistency (system_role discriminator: exactly 1 root, root not
+  composed-of, subsystem must be composed-of, root requires
+  body.acceptance_gate, subsystem requires body.dbom_ref=null),
+  3.closure_completeness, 4.brief_coverage, 5.spec_coverage,
+  6.spec_quality.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: gate functions. Does NOT own: I/O or persistence."
+  runtime: in_process
+  runtime_note: "pure"
+  realization_file: src/verifier/gates.ts
+---
+id: kizo:dev.glm.verification.runner
+stratum: component
+title: Verifier Runner
+description: |
+  runWorkspaceVerifier — loads nodes, runs gates, persists verification_runs,
+  appends audit `verifier.run`, publishes generation.complete event.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: verifier orchestration + side-effects. Does NOT own: gate rules."
+  runtime: in_process
+  runtime_note: "pure orchestration + audit/store/eventbus I/O"
+  realization_file: src/verifier/runner.ts
+---
+id: kizo:dev.glm.verification.verification_run_repository
+stratum: component
+title: Verification Run Repository
+description: |
+  Persists verifier run outcomes — id, workspace_id, ts, gate_results_json,
+  overall_pass.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: verification_runs table. Does NOT own: gate execution."
+  runtime: in_process
+  runtime_note: "bun:sqlite"
+  realization_file: src/repository/verification-run-repository.ts
+---
+id: kizo:dev.glm.verification.verifier_routes
+stratum: component
+title: Verifier Routes
+description: |
+  POST /workspaces/:id/verify (run gates), GET /verifier/runs[/latest|/:id].
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: /verifier route group. Does NOT own: gate or run semantics."
+  runtime: in_process
+  runtime_note: "hono routes"
+  realization_file: src/server/routes/verifier.ts
+
+# ───── agent_orchestration ─────────────────────────────────────────────────
+---
+id: kizo:dev.glm.agent_orchestration.intent_classifier
+stratum: component
+title: Intent Classifier (4 Regex)
+description: |
+  Vibe Mode intent classifier — 4 regex rules → scenario `archive` / `multi` /
+  `drift` / `promote`. Unmatched returns null (LLM-fallback path).
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: 4-rule classifier. Does NOT own: scripted scenarios."
+  runtime: in_process
+  runtime_note: "pure"
+  realization_file: src/agent/intent.ts
+---
+id: kizo:dev.glm.agent_orchestration.vibe_scripts
+stratum: component
+title: Vibe Mode Scripts
+description: |
+  Hand-coded scripted scenarios + card sequences (10 CardKinds:
+  agent_text, plan, console, clarifier, scr_draft, gate, choice,
+  drift_card, resolution_card, result) plus the FORMAL_GATE_INVARIANTS
+  declaration (4 things the agent must never bypass).
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: scenario data + FORMAL_GATE_INVARIANTS. Does NOT own: dispatch."
+  runtime: in_process
+  runtime_note: "pure data + continuation functions"
+  realization_file: src/agent/scripts.ts
+---
+id: kizo:dev.glm.agent_orchestration.vibe_routes
+stratum: component
+title: Vibe Mode Routes
+description: |
+  GET /vibe/scripts, POST /vibe/intent, POST /vibe/continue, POST
+  /vibe/llm-fallback (AC-40: graceful degradation when no LLM configured).
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: /vibe route group. Does NOT own: scenarios or LLM transport."
+  runtime: in_process
+  runtime_note: "hono routes"
+  realization_file: src/server/routes/vibe.ts
+
+# ───── git ─────────────────────────────────────────────────────────────────
+---
+id: kizo:dev.glm.git.git_client
+stratum: component
+title: Git CLI Wrapper
+description: |
+  Typed wrapper around the git CLI via spawnSync. init / config / add /
+  commit (msg via stdin) / showMessage / logGrep / showFiles / showFile /
+  revParse / branch / checkout / tag / statusPorcelain. GitError on
+  non-zero exit.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: typed git CLI surface. Does NOT own: ECN grammar or SCR flow."
+  runtime: in_process
+  runtime_note: "child_process.spawnSync"
+  realization_file: src/git/git-client.ts
+---
+id: kizo:dev.glm.git.git_notes
+stratum: component
+title: Git Notes Client
+description: |
+  Wrapper around `git notes`. Default ref refs/notes/generation.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: git-notes operations. Does NOT own: provenance semantics."
+  runtime: in_process
+  runtime_note: "depends on GitClient"
+  realization_file: src/git/git-notes.ts
+---
+id: kizo:dev.glm.git.hook_installer
+stratum: component
+title: Hook Installer
+description: |
+  Installs pre-commit (verify_sekkei.py + null-byte check) and pre-receive
+  (Affected: block + 6-gate verifier when GLM_DB_PATH + GLM_WORKSPACE set)
+  hooks. Exposes installHooks + hookInstalled.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: pre-commit + pre-receive shell scripts. Does NOT own: their commands."
+  runtime: in_process
+  runtime_note: "node:fs + node:path"
+  realization_file: src/git/hook-installer.ts
+---
+id: kizo:dev.glm.git.ecn_commit
+stratum: component
+title: ECN Commit Grammar
+description: |
+  ECN commit message builder + parser. Required lines: ECN summary,
+  Affected:, Why:, optional Regen required:, SCR: SCR-<n>,
+  Signed-off-by:. Round-trip parse/build.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: ECN message format. Does NOT own: which commits are ECN."
+  runtime: in_process
+  runtime_note: "pure"
+  realization_file: src/git/ecn-commit.ts
+---
+id: kizo:dev.glm.git.yaml_store
+stratum: component
+title: YAML Node Store
+description: |
+  Node-as-YAML serializer + parser. File path
+  <repoRoot>/nodes/<stratum>/<safe-glm-id>.yaml (`:` → `__`). Verifies
+  content_hash on read.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: node file format + path scheme. Does NOT own: git or commit grammar."
+  runtime: in_process
+  runtime_note: "node:fs + yaml"
+  realization_file: src/git/yaml-store.ts
+
+# ───── persistence ─────────────────────────────────────────────────────────
+---
+id: kizo:dev.glm.persistence.db_bootstrap
+stratum: component
+title: DB Bootstrap + Migrations
+description: |
+  SQLite singleton open + migration runner. Sets WAL / NORMAL / FK ON /
+  busy timeout 5000. Migration files NNNN_<slug>.sql. openDb + closeDb +
+  requireDb + runMigrations + appliedMigrations.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: db open + pragmas + migration runner. Does NOT own: schema."
+  runtime: in_process
+  runtime_note: "bun:sqlite + node:fs"
+  realization_file: src/repository/db.ts
+---
+id: kizo:dev.glm.persistence.content_hash
+stratum: component
+title: Content Hash
+description: |
+  Canonical-JSON serializer + sha256 content addressing (HASH_PREFIX
+  `sha256:`). Repositories call this on every write and re-verify on
+  every read. ContentHashMismatchError raised on drift.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: canonicalize + contentHash + verify. Used by every repo."
+  runtime: in_process
+  runtime_note: "pure (node:crypto)"
+  realization_file: src/domain/content-hash.ts
+---
+id: kizo:dev.glm.persistence.domain_types
+stratum: component
+title: Shared Domain Types
+description: |
+  All shared TypeScript domain types — entities, body shapes by stratum,
+  supporting rows, operational tables, SCR / Variant / Drift / Reuse /
+  Provenance types. No behavior.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: TypeScript type vocabulary. Does NOT own: behavior."
+  runtime: in_process
+  runtime_note: "types only"
+  realization_file: src/types.ts
+
+# ───── runtime ─────────────────────────────────────────────────────────────
+---
+id: kizo:dev.glm.runtime.server_entry
+stratum: component
+title: Server Entry (Bun.serve)
+description: |
+  Bun.serve bootstrap. Reads PORT (default 3000) and SESSION_SECRET,
+  opens the DB, builds the app via createApp, and listens.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: process startup. Does NOT own: route wiring."
+  runtime: in_process
+  runtime_note: "Bun"
+  realization_file: src/server/server.ts
+---
+id: kizo:dev.glm.runtime.app_factory
+stratum: component
+title: App Factory (createApp)
+description: |
+  Hono app factory createApp(deps, opts). Wires middleware + all /api/v1
+  routes + the PWA static-serving fallback in order.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: middleware + route wiring order. Does NOT own: route handlers."
+  runtime: in_process
+  runtime_note: "hono"
+  realization_file: src/server/app.ts
+---
+id: kizo:dev.glm.runtime.deps_container
+stratum: component
+title: DI Container (RuntimeDeps)
+description: |
+  AppDeps / RuntimeDeps / Repositories interfaces + buildRepositories(db,
+  overrides). The DI surface every middleware / route reads through.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: the DI shape. Does NOT own: any individual dependency's behavior."
+  runtime: in_process
+  runtime_note: "types + factory"
+  realization_file: src/server/deps.ts
+---
+id: kizo:dev.glm.runtime.context_middleware
+stratum: component
+title: Context Middleware
+description: |
+  Attaches deps + repos onto c.var so every downstream handler has the
+  same view of the application state.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: c.var attachment. Does NOT own: identification."
+  runtime: in_process
+  runtime_note: "hono middleware"
+  realization_file: src/server/middleware/context.ts
+---
+id: kizo:dev.glm.runtime.error_middleware
+stratum: component
+title: Error Middleware
+description: |
+  Maps domain exceptions to HTTP — UnauthorizedError→401,
+  ForbiddenError→403, NodeBodyValidationError→422,
+  InvalidScrTransitionError→409, ContentHashMismatchError→500. Exposes
+  httpError() shortcut.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: exception → HTTP mapping. Does NOT own: exception classes."
+  runtime: in_process
+  runtime_note: "hono middleware"
+  realization_file: src/server/middleware/error.ts
+---
+id: kizo:dev.glm.runtime.rate_limit
+stratum: component
+title: Rate-Limit Middleware
+description: |
+  In-process token-bucket rate limiter. Defaults: capacity 60, refill
+  10/sec. 429 with Retry-After.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: per-principal token bucket. Does NOT own: cluster-wide limits."
+  runtime: in_process
+  runtime_note: "hono middleware"
+  realization_file: src/server/middleware/rate-limit.ts
+---
+id: kizo:dev.glm.runtime.security_headers
+stratum: component
+title: Security Headers Middleware
+description: |
+  CSP (strict), Referrer-Policy, X-Content-Type-Options,
+  X-Frame-Options:DENY, Permissions-Policy, HSTS when HTTPS.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: response security headers. Does NOT own: TLS termination."
+  runtime: in_process
+  runtime_note: "hono middleware"
+  realization_file: src/server/middleware/security-headers.ts
+
+# ───── observability ───────────────────────────────────────────────────────
+---
+id: kizo:dev.glm.observability.audit_repository
+stratum: component
+title: Audit Repository
+description: |
+  Append-only audit_events table. append + listByWorkspace + listByType.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: audit_events table. Does NOT own: which events to record."
+  runtime: in_process
+  runtime_note: "bun:sqlite"
+  realization_file: src/repository/audit-repository.ts
+---
+id: kizo:dev.glm.observability.request_logging
+stratum: component
+title: Request Logging Middleware
+description: |
+  Structured per-request logging + X-Request-Id. Suppressed under
+  NODE_ENV=test and skipped for static paths.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: request log format. Does NOT own: audit feed."
+  runtime: in_process
+  runtime_note: "hono middleware"
+  realization_file: src/server/middleware/logging.ts
+
+# ───── distribution ────────────────────────────────────────────────────────
+---
+id: kizo:dev.glm.distribution.static_routes
+stratum: component
+title: Static Routes
+description: |
+  /, /login, /manifest.json, /sw.js (with Service-Worker-Allowed: /),
+  /public/*. Path-traversal blocked.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: static asset serving. Does NOT own: the assets themselves."
+  runtime: in_process
+  runtime_note: "hono routes"
+  realization_file: src/server/routes/static.ts
+---
+id: kizo:dev.glm.distribution.pwa_shell
+stratum: component
+title: PWA Shell (Vanilla JS Bundle)
+description: |
+  Client-side bundle — api client, observable store, hash router,
+  WebSocket client, soft-lock helper, offline queue, app boot, 10 view
+  modules (dashboard, change-management, drift, effectivity, provenance,
+  reuse, sekkei-browser, variants, vibe-mode, where-used), 10 UI atoms
+  (class-badge, diff-block, empty, hash, index, kv, section, status-pill,
+  stratum-tag, yaml-block). Service worker for offline read.
+revision: { major: A, iteration: 1, status: in_review }
+provenance: { derives_from: null, override_kind: net_new, authored_by: glm-reverse-engineer@A.1, authored_at: 2026-05-11T00:00:00Z }
+body:
+  boundary: "Owns: the entire vanilla-JS client surface. Does NOT own: API."
+  runtime: in_browser
+  runtime_note: "browser ES modules + service worker"
+  realization_file: public/js/app.js

@@ -1,0 +1,7 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# DEPRECATED — kizo:dev.glm.engine  (A.0 speculative; DROPPED in A.1)
+#
+# Rationale: there is no separate engine process. The regeneration pipeline,
+# verifier, drift sweeper, and ws fan-out all share the same RuntimeDeps
+# container (src/server/deps.ts) with the workbench routes.
+# ─────────────────────────────────────────────────────────────────────────────
