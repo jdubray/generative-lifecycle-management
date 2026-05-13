@@ -64,7 +64,7 @@ describe('glm CLI (phase 1)', () => {
   });
 
   test('not-yet-implemented commands exit 2 with a Phase reference', () => {
-    const r = runCli(['vibe']);
+    const r = runCli(['refine']);
     expect(r.status).toBe(2);
     expect(r.stderr).toContain('not yet implemented');
     expect(r.stderr).toContain('Phase');

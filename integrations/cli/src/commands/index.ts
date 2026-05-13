@@ -1,5 +1,6 @@
 import { runHelp, runVersion } from './help.ts';
 import { runStatus } from './status.ts';
+import { runVibe } from './vibe.ts';
 import type { ParsedArgs } from '../lib/argv.ts';
 
 /**
@@ -22,7 +23,7 @@ const COMMANDS: Record<string, CommandFn> = {
     return 0;
   },
   status: (args) => runStatus(args),
-  vibe: notYetImplemented('vibe', 4),
+  vibe: (args) => runVibe(args),
   verify: notYetImplemented('verify', 5),
   generate: notYetImplemented('generate', 6),
   refine: notYetImplemented('refine', 8),

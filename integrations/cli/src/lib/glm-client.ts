@@ -47,6 +47,28 @@ export interface WorkspaceSummary {
   } | null;
 }
 
+export interface ImportSekkeiRequest {
+  slug: string;
+  name?: string;
+  /** Multi-document YAML produced by `glm vibe` (or supplied as a file). */
+  yaml: string;
+  /** Filename to record with the document — defaults to `sekkei.yaml`. */
+  filename?: string;
+  dryRun?: boolean;
+}
+
+export interface ImportSekkeiResult {
+  workspaceId: string;
+  workspace: Workspace;
+  summary: {
+    nodesInserted: number;
+    nodesUpdated: number;
+    nodesUnchanged: number;
+    nodesRejected?: number;
+    dryRun?: boolean;
+  } & Record<string, unknown>;
+}
+
 export class GlmClient {
   public readonly baseUrl: string;
   private readonly token: string | undefined;
@@ -76,6 +98,20 @@ export class GlmClient {
     return this.get<WorkspaceSummary>(`/api/v1/workspaces/${encodeURIComponent(id)}/summary`);
   }
 
+  /**
+   * POST /api/v1/workspaces/import — create-or-update workspace from a sekkei
+   * YAML document. The server creates the workspace if `slug` is new and
+   * returns the import summary (inserted / updated / unchanged counts).
+   */
+  async importSekkei(req: ImportSekkeiRequest): Promise<ImportSekkeiResult> {
+    return this.post<ImportSekkeiResult>('/api/v1/workspaces/import', {
+      slug: req.slug,
+      name: req.name ?? req.slug,
+      documents: [{ filename: req.filename ?? 'sekkei.yaml', content: req.yaml }],
+      dryRun: req.dryRun ?? false,
+    });
+  }
+
   // --------------------------------------------------------------------- core
 
   private async get<T>(path: string, opts: { auth?: boolean } = {}): Promise<T> {
@@ -95,6 +131,35 @@ export class GlmClient {
     if (!response.ok) {
       const body = await safeReadText(response);
       throw new HttpError(url, response.status, body);
+    }
+
+    return (await response.json()) as T;
+  }
+
+  private async post<T>(path: string, body: unknown, opts: { auth?: boolean } = {}): Promise<T> {
+    const url = `${this.baseUrl}${path}`;
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    };
+    if (opts.auth !== false && this.token) {
+      headers.Authorization = `Bearer ${this.token}`;
+    }
+
+    let response: Response;
+    try {
+      response = await this.fetchImpl(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+      });
+    } catch (err) {
+      throw new ServerUnreachableError(this.baseUrl, err);
+    }
+
+    if (!response.ok) {
+      const text = await safeReadText(response);
+      throw new HttpError(url, response.status, text);
     }
 
     return (await response.json()) as T;

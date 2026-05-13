@@ -146,14 +146,17 @@ Each phase is one PR-sized chunk. Each ends with `bun test` green and a working 
 
 **Done when:** ~~Unit test using a mock `claude` script passes; "not on PATH" produces the spec'd error.~~ Done. 10 tests cover argv composition (--print, --model, --system-prompt-file), stdin/stdout round-trip (including 60 KB payloads), ClaudeCliNotFoundError, ClaudeCliFailedError on non-zero exit, and the timeout path.
 
-### Phase 4 — Vibe design (UC-01)
+### Phase 4 — Vibe design (UC-01) ✅
 
-- Prompts: `prompts/vibe-design.txt` concatenates with `docs/sekkei-authoring.md` + `specification/sekkei.schema.json` at runtime.
-- `glm vibe` command: interactive prompt for description (or `--description-file`), spawns Claude, streams the YAML output, posts to `POST /workspaces/:id/import-sekkei`, prints the import summary.
-- **Server-side dep:** `POST /workspaces/:id/import-sekkei` already exists in `src/server/routes/import.ts`. No server changes needed for Phase 4.
-- **New server endpoint required:** `POST /workspaces/:id/vibe` only if we want server-side spawning. For CLI-only UC-01, we don't; spawn locally.
+- `src/lib/prompts.ts` — `buildVibeSystemPrompt`, `buildVibeUserPrompt`, `stripCodeFences`. The system prompt embeds the authoring skill verbatim plus (optionally) the sekkei JSON schema.
+- `src/lib/repo-root.ts` — `findRepoRoot()` walks up from the CLI binary looking for `docs/sekkei-authoring.md`; honors `GLM_REPO_ROOT`. `loadSkillFiles()` reads the skill + schema.
+- `src/lib/glm-client.ts` — added `importSekkei({ slug, name, yaml, dryRun })` → POST `/api/v1/workspaces/import`.
+- `src/commands/vibe.ts` — `glm vibe --slug --namespace --description[--description-file]`. Loads the skill, composes prompts, writes the system prompt to a temp file, spawns `claude --print`, strips outer markdown fences, posts the YAML to import. Optional `--out`, `--dry-run`, `--json`.
+- `--from-dir` (UC-04) returns exit 2 with a "Phase 7" pointer.
 
-**Done when:** `glm vibe` round-trips a one-paragraph description into a multi-node sekkei imported in the local DB.
+**Done when:** ~~`glm vibe` round-trips a one-paragraph description into a multi-node sekkei imported in the local DB.~~ Done at the unit-test boundary (claude + import mocked). 26 new tests cover prompt assembly, repo-root resolution, fence stripping, required-flag validation, --description-file, --out, --json, import error mapping, and the `--from-dir` Phase 7 stub.
+
+Real end-to-end is gated by solo-mode auth (Phase 6 server work) — until then, the user must be logged in to the GLM web UI so the session cookie carries through.
 
 ### Phase 5 — Verifier streaming (UC-03)
 

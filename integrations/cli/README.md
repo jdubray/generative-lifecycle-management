@@ -50,7 +50,7 @@ glm --help
 |---------|------:|--------|
 | `glm --help` / `glm --version` | 1 | ✅ implemented |
 | `glm status` | 2 | ✅ implemented |
-| `glm vibe` | 4 | ⏳ planned |
+| `glm vibe` | 4 | ✅ implemented |
 | `glm vibe --from-dir <path>` | 7 | ⏳ planned |
 | `glm verify` | 5 | ⏳ planned |
 | `glm generate --component <id>` | 6 | ⏳ planned |
