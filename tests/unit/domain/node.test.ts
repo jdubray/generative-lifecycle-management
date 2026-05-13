@@ -35,7 +35,7 @@ describe('validateBody — component', () => {
   });
 });
 
-describe('validateBody — interaction', () => {
+describe('validateBody — interaction (legacy flat form)', () => {
   test('fsm requires states and transitions', () => {
     expect(
       validateBody('interaction', { contract: 'fsm', states: ['a'], transitions: ['x:y'] }).ok,
@@ -53,12 +53,150 @@ describe('validateBody — interaction', () => {
   });
 });
 
-describe('validateBody — spec', () => {
-  test('requires spec_kind and content', () => {
+describe('validateBody — interaction (rich form from docs/sekkei-authoring.md §5.4)', () => {
+  test('fsm with contract_kind + nested contract_definition (states as objects) is accepted', () => {
+    const body = {
+      contract_kind: 'fsm',
+      contract_definition: {
+        pc: 'status',
+        pc0: 'idle',
+        states: [
+          { id: 'idle', terminal: false, transitions: ['START'] },
+          { id: 'running', terminal: false, transitions: ['DONE'] },
+          { id: 'done', terminal: true, transitions: [] },
+        ],
+        actions: { START: ['running'], DONE: ['done'] },
+        naps: { placement: 'wired in component.naps POST-INIT' },
+        reactors: [{ name: 'persist', on: 'every_transition' }],
+        invariants: ['always finishes within 30s'],
+      },
+      realization_file: 'src/order_lifecycle.ts',
+    };
+    const r = validateBody('interaction', body);
+    expect(r.ok).toBe(true);
+  });
+
+  test('integration_adapter rich form is accepted', () => {
+    const body = {
+      contract_kind: 'integration_adapter',
+      contract_definition: { upstream: 'stripe', operations: ['charge', 'refund'] },
+    };
+    expect(validateBody('interaction', body).ok).toBe(true);
+  });
+
+  test('contract_kind with no contract_definition is accepted (per-kind detail is gate 6)', () => {
+    expect(validateBody('interaction', { contract_kind: 'fsm' }).ok).toBe(true);
+  });
+
+  test('contract_kind value must be a known kind', () => {
+    const r = validateBody('interaction', { contract_kind: 'mystery' });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.issues[0]).toContain('unknown');
+  });
+
+  test('contract_definition (when present) must be an object', () => {
+    const r = validateBody('interaction', { contract_kind: 'fsm', contract_definition: 'oops' });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.issues[0]).toContain('must be an object');
+  });
+
+  test('missing both contract_kind and contract is reported clearly', () => {
+    const r = validateBody('interaction', { realization_file: 'x.ts' });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.issues[0]).toContain('contract_kind or contract');
+  });
+});
+
+describe('validateBody — spec (legacy `content` form)', () => {
+  test('spec_kind + content is accepted (back-compat)', () => {
     expect(
       validateBody('spec', { spec_kind: 'code_recipe', content: 'do the thing' }).ok,
     ).toBe(true);
-    expect(validateBody('spec', { spec_kind: 'code_recipe' }).ok).toBe(false);
+  });
+  test('rejects when spec_kind is missing', () => {
+    const r = validateBody('spec', { content: 'x' });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.issues[0]).toContain('spec_kind');
+  });
+});
+
+describe('validateBody — spec (rich shapes from docs/sekkei-authoring.md §6)', () => {
+  test('functional spec with behaviors[] (no content) is accepted', () => {
+    const body = {
+      spec_kind: 'functional',
+      behaviors: [
+        {
+          id: 'create',
+          signature: 'create(input)',
+          description: 'creates an entity',
+          preconditions: ['input is valid'],
+          postconditions: ['entity exists'],
+        },
+      ],
+    };
+    expect(validateBody('spec', body).ok).toBe(true);
+  });
+
+  test('technical spec with implementation block (no content) is accepted', () => {
+    const body = {
+      spec_kind: 'technical',
+      implementation: { runtime: 'bun', framework: 'hono', storage: 'bun:sqlite' },
+    };
+    expect(validateBody('spec', body).ok).toBe(true);
+  });
+
+  test('acceptance spec with deliverables[] and verifier object is accepted', () => {
+    const body = {
+      spec_kind: 'acceptance',
+      deliverables: [{ kind: 'test_file', path: 'test/repo.test.ts' }],
+      verifier: { command: 'bun test test/repo.test.ts', expect: 'exit 0' },
+    };
+    expect(validateBody('spec', body).ok).toBe(true);
+  });
+
+  test('prompt spec with outputs as [{path,description}] is accepted', () => {
+    const body = {
+      spec_kind: 'prompt',
+      context_bundle: ['acme:web.shop', 'acme:web.shop.catalog'],
+      outputs: [{ path: 'src/repo.ts', description: 'repository module' }],
+      prompt_template: 'Generate the repository.',
+      verifier: { command: 'bun test', expect: 'all green' },
+    };
+    expect(validateBody('spec', body).ok).toBe(true);
+  });
+
+  test('prompt spec with verifier as a plain string still works (back-compat)', () => {
+    const body = {
+      spec_kind: 'prompt',
+      context_bundle: [],
+      outputs: ['src/x.ts'],
+      verifier: 'bun test',
+    };
+    expect(validateBody('spec', body).ok).toBe(true);
+  });
+
+  test('verifier of wrong shape is rejected', () => {
+    const r = validateBody('spec', { spec_kind: 'acceptance', verifier: 42 });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.issues[0]).toContain('verifier');
+  });
+
+  test('outputs with neither string nor {path} is rejected', () => {
+    const r = validateBody('spec', { spec_kind: 'prompt', outputs: [{ description: 'no path' }] });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.issues[0]).toContain('outputs');
+  });
+
+  test('business_rule spec with rules[] is accepted', () => {
+    const body = {
+      spec_kind: 'business_rule',
+      rules: [{ id: 'BR-001', rule: 'invariant', enforcement: 'asserted on write' }],
+    };
+    expect(validateBody('spec', body).ok).toBe(true);
+  });
+
+  test('a bare spec_kind passes envelope (gate 6 enforces per-kind requirements)', () => {
+    expect(validateBody('spec', { spec_kind: 'functional' }).ok).toBe(true);
   });
 });
 
