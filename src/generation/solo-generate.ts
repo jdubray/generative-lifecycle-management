@@ -523,6 +523,17 @@ const CLAUDE_TIMEOUT_MS = 240_000;
 
 function defaultClaudeRunner(): ClaudeRunner {
   return async ({ userText, systemPromptFile, model }) => {
+    // Diagnostic: log the resolved binary path so we know what Bun is launching.
+    if (process.env.NODE_ENV !== 'test') {
+      const resolved = Bun.which('claude') ?? '<not found>';
+      console.log(JSON.stringify({
+        ts: new Date().toISOString(),
+        component: 'solo-generate',
+        event: 'claude_resolved',
+        path: resolved,
+      }));
+    }
+
     let proc;
     try {
       proc = Bun.spawn({
@@ -531,7 +542,7 @@ function defaultClaudeRunner(): ClaudeRunner {
           '--print',
           '--model', model,
           '--system-prompt-file', systemPromptFile,
-          userText, // ← user prompt as positional arg; no stdin needed
+          userText,
         ],
         stdin: 'ignore',
         stdout: 'pipe',
@@ -542,27 +553,37 @@ function defaultClaudeRunner(): ClaudeRunner {
       throw err;
     }
 
-    // Hard timeout — kills the subprocess if it hasn't exited in 240s.
+    // Tee stdout/stderr through arrays so we can include partial output in the
+    // timeout error (otherwise we have no signal whether claude is mute, partly
+    // writing, or actively producing).
+    const stdoutChunks: Uint8Array[] = [];
+    const stderrChunks: Uint8Array[] = [];
+    const drainStdout = (async () => {
+      for await (const chunk of proc.stdout as ReadableStream<Uint8Array>) stdoutChunks.push(chunk);
+    })();
+    const drainStderr = (async () => {
+      for await (const chunk of proc.stderr as ReadableStream<Uint8Array>) stderrChunks.push(chunk);
+    })();
+
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
-      try {
-        proc.kill();
-      } catch {
-        /* ignore */
-      }
+      try { proc.kill(); } catch { /* ignore */ }
     }, CLAUDE_TIMEOUT_MS);
 
-    const [stdout, stderr, exitCode] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-      proc.exited,
-    ]);
+    const exitCode = await proc.exited;
+    await Promise.all([drainStdout, drainStderr]);
     clearTimeout(timer);
+
+    const stdout = new TextDecoder().decode(Buffer.concat(stdoutChunks.map((c) => Buffer.from(c))));
+    const stderr = new TextDecoder().decode(Buffer.concat(stderrChunks.map((c) => Buffer.from(c))));
 
     if (timedOut) {
       throw new SoloGenerateError(
-        `claude CLI timed out after ${CLAUDE_TIMEOUT_MS}ms with no response`,
+        `claude CLI timed out after ${CLAUDE_TIMEOUT_MS}ms ` +
+          `(stdout=${stdout.length}B, stderr=${stderr.length}B). ` +
+          (stdout.length > 0 ? `stdout head: ${stdout.slice(0, 200)}` : '') +
+          (stderr.length > 0 ? ` stderr head: ${stderr.slice(0, 200)}` : ''),
         502,
       );
     }
