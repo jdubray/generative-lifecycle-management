@@ -23,6 +23,7 @@ import { vibeRoutes } from './routes/vibe.ts';
 import { soloGenerateRoutes } from './routes/solo-generate.ts';
 import { componentSpecRoutes } from './routes/component-spec.ts';
 import { acceptanceVerifyRoutes } from './routes/acceptance-verify.ts';
+import { recordGenerationRoutes } from './routes/record-generation.ts';
 import { HmacSigner } from '../generation/attestation.ts';
 import { EventBus } from '../ws/event-bus.ts';
 import { GitClient } from '../git/git-client.ts';
@@ -91,6 +92,7 @@ export function createApp(input: AppDeps, opts: CreateAppOptions = {}): { app: H
   api.route('/', soloGenerateRoutes());
   api.route('/', componentSpecRoutes());
   api.route('/', acceptanceVerifyRoutes());
+  api.route('/', recordGenerationRoutes());
   api.route('/', importRoutes());
   app.route('/api/v1', api);
 

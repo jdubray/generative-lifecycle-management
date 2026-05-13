@@ -8,6 +8,7 @@ import type { AuditRepository } from '../repository/audit-repository.ts';
 import type { WorkspaceRepository } from '../repository/workspace-repository.ts';
 import type { ProvenanceEvent, SekkeiNode } from '../types.ts';
 import {
+  aggregateDigest,
   buildContextBundle,
   HARD_CONSTRAINTS,
   type AcceptanceBody,
@@ -427,14 +428,6 @@ function resolveSafePath(baseDir: string, candidate: string): string {
   return target;
 }
 
-function aggregateDigest(files: Array<{ sha256: string }>): string {
-  if (files.length === 0) {
-    return 'sha256:0000000000000000000000000000000000000000000000000000000000000000';
-  }
-  const h = createHash('sha256');
-  for (const f of files) h.update(f.sha256);
-  return `sha256:${h.digest('hex')}`;
-}
 
 // --- Default subprocess runners -------------------------------------------
 //

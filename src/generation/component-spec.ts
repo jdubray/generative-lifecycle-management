@@ -78,6 +78,20 @@ export const HARD_CONSTRAINTS = `HARD CONSTRAINTS:
 /** Bytes-soft-cap on resolved context bundle text — protects against runaway bundles. */
 export const CONTEXT_BUNDLE_BYTE_CAP = 400_000;
 
+/**
+ * Compute the rolling SHA-256 of a sequence of per-file content hashes —
+ * the `subject_digest` field on `provenance_events`. Order-sensitive: same
+ * files in different order produce different aggregate digests.
+ */
+export function aggregateDigest(files: Array<{ sha256: string }>): string {
+  if (files.length === 0) {
+    return 'sha256:0000000000000000000000000000000000000000000000000000000000000000';
+  }
+  const h = createHash('sha256');
+  for (const f of files) h.update(f.sha256);
+  return `sha256:${h.digest('hex')}`;
+}
+
 export interface ResolveComponentSpecDeps {
   nodes: NodeRepository;
   workspaces: WorkspaceRepository;
