@@ -9,8 +9,9 @@ COMMANDS
   vibe [--workspace <id>] [--from-dir <path>] [--description-file <file>]
                           Author or reverse-engineer a sekkei interactively.
 
-  verify [--workspace <id>] [--node <id>]
-                          Run the 6 verifier gates. Without --node, runs all gates on the full sekkei.
+  verify [--workspace <id>] [--verbose] [--no-color]
+                          Run the 6 verifier gates and print per-gate results.
+                          Exit 0 on overall pass, 1 on any gate failure.
 
   generate --component <id> [--workspace <id>] [--dry-run]
                           Generate output files for one Component from its spec.prompt.

@@ -181,12 +181,15 @@ without any browser session.
 
 Real end-to-end is gated by solo-mode auth (Phase 6 server work) — until then, the user must be logged in to the GLM web UI so the session cookie carries through.
 
-### Phase 5 — Verifier streaming (UC-03)
+### Phase 5 — `glm verify` ✅
 
-- `glm verify` command: hits `GET /workspaces/:id/verify`, consumes the SSE stream, prints each gate result line-by-line with color (TTY only).
-- **Server-side dep:** `/verify` endpoint exists but currently returns JSON. Convert to SSE in `src/server/routes/verifier.ts` (additive — keep JSON shape behind `Accept: application/json`).
+- `src/lib/glm-client.ts` — `runVerifier(workspaceId)` POSTs `/api/v1/workspaces/:id/verify` and unwraps `{ run }`.
+- `src/lib/color.ts` — small ANSI helper. `shouldUseColor()` respects `NO_COLOR`, `--no-color`, and the stream's `isTTY`. `makeColorize(enabled)` returns identity functions when disabled.
+- `src/commands/verify.ts` — pretty per-gate output (`✓`/`✗` glyphs, indented issue list under failing gates, capped at 5 unless `--verbose`). Exit 0 on `overallPass`, 1 otherwise. `--json` emits the full `VerificationRun` on one line.
 
-**Done when:** `glm verify` prints gates 1–6 as they complete; final exit code reflects pass/fail.
+**Done when:** ~~`glm verify` prints gates 1–6 as they complete; final exit code reflects pass/fail.~~ Done. 16 new tests cover pass/fail rendering, issue-list capping, `--verbose`, `--json`, color on/off, `--no-color`, server-unreachable and 404 error mapping.
+
+**Deferred:** SSE streaming. The current verifier runs synchronously server-side in well under a second for typical workspaces, so "live" streaming would be cosmetic. The endpoint and CLI can both move to SSE later without breaking compatibility (server already supports `Accept` content negotiation).
 
 ### Phase 6 — Code generation (UC-02)
 

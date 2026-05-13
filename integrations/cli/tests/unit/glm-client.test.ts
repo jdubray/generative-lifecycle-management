@@ -98,6 +98,28 @@ describe('GlmClient', () => {
     }
   });
 
+  test('runVerifier POSTs to /workspaces/:id/verify and unwraps `run`', async () => {
+    const { fn, calls } = stubFetch(() =>
+      jsonResponse(200, {
+        run: {
+          id: 'r-1',
+          workspaceId: 'default',
+          ts: '2026-05-12T00:00:00Z',
+          overallPass: true,
+          gateResults: { gates: [] },
+        },
+      }),
+    );
+    const client = new GlmClient({ baseUrl: 'http://localhost:3000', token: 'tk', fetch: fn });
+    const run = await client.runVerifier('default');
+    expect(run.id).toBe('r-1');
+    expect(calls[0]?.url).toBe('http://localhost:3000/api/v1/workspaces/default/verify');
+    expect(calls[0]?.init?.method).toBe('POST');
+    const headers = (calls[0]?.init?.headers ?? {}) as Record<string, string>;
+    expect(headers.Authorization).toBe('Bearer tk');
+    expect(headers['Content-Type']).toBe('application/json');
+  });
+
   test('getWorkspaceSummary URL-encodes the workspace id', async () => {
     const { fn, calls } = stubFetch(() =>
       jsonResponse(200, {

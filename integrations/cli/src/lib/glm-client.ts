@@ -69,6 +69,20 @@ export interface ImportSekkeiResult {
   } & Record<string, unknown>;
 }
 
+export interface VerifierGate {
+  name: string;
+  passed: boolean;
+  issues: string[];
+}
+
+export interface VerifierRun {
+  id: string;
+  workspaceId: string;
+  ts: string;
+  overallPass: boolean;
+  gateResults: { gates: VerifierGate[] };
+}
+
 export class GlmClient {
   public readonly baseUrl: string;
   private readonly token: string | undefined;
@@ -110,6 +124,18 @@ export class GlmClient {
       documents: [{ filename: req.filename ?? 'sekkei.yaml', content: req.yaml }],
       dryRun: req.dryRun ?? false,
     });
+  }
+
+  /**
+   * POST /api/v1/workspaces/:id/verify — run the 6-gate verifier and return
+   * the persisted VerificationRun row. Requires auth.
+   */
+  async runVerifier(workspaceId: string): Promise<VerifierRun> {
+    const { run } = await this.post<{ run: VerifierRun }>(
+      `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/verify`,
+      {},
+    );
+    return run;
   }
 
   // --------------------------------------------------------------------- core
