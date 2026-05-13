@@ -50,4 +50,22 @@ describe('parseCommandLine', () => {
     expect(r.flags.workspace).toBe(true);
     expect(r.flags.json).toBe(true);
   });
+
+  test('-h is parsed as a boolean short flag (not a positional)', () => {
+    const r = parseCommandLine(['-h']);
+    expect(r.command).toBeUndefined();
+    expect(r.flags.h).toBe(true);
+    expect(r.positional).toEqual([]);
+  });
+
+  test('-v is parsed as a boolean short flag', () => {
+    const r = parseCommandLine(['-v']);
+    expect(r.flags.v).toBe(true);
+  });
+
+  test('short flag after a command is still parsed as a flag', () => {
+    const r = parseCommandLine(['status', '-h']);
+    expect(r.command).toBe('status');
+    expect(r.flags.h).toBe(true);
+  });
 });

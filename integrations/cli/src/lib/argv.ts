@@ -55,6 +55,12 @@ export function parseCommandLine(argv: readonly string[]): ParsedArgs {
       continue;
     }
 
+    // Single-dash short flag (e.g. -h, -v). Always boolean; never consumes a value.
+    if (arg.startsWith('-') && arg.length > 1) {
+      flags[arg.slice(1)] = true;
+      continue;
+    }
+
     positional.push(arg);
   }
 

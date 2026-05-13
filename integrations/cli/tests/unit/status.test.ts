@@ -131,6 +131,19 @@ describe('glm status', () => {
     expect((opts.io!.stdout as StringStream).buffer).toContain('token configured');
   });
 
+  test('non-CliError from summary fetch → exit 1 (not silently 0)', async () => {
+    const opts = makeOpts({
+      clientFactory: () =>
+        fakeClient({
+          summary: () => Promise.reject(new SyntaxError('Unexpected token < in JSON at position 0')),
+        }),
+    });
+    const exit = await runStatus(parseCommandLine(['status']), opts);
+    expect(exit).toBe(1);
+    const out = (opts.io!.stdout as StringStream).buffer;
+    expect(out).toContain('Workspace summary: unavailable');
+  });
+
   test('honors --port flag in the resolved baseUrl', async () => {
     let capturedBaseUrl = '';
     const opts = makeOpts({

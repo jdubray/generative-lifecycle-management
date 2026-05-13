@@ -38,6 +38,18 @@ describe('glm CLI (phase 1)', () => {
     expect(r.stdout).toContain('verify');
   });
 
+  test('-h short flag prints the same usage banner and exits 0', () => {
+    const r = runCli(['-h']);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('USAGE');
+  });
+
+  test('-v short flag prints the version and exits 0', () => {
+    const r = runCli(['-v']);
+    expect(r.status).toBe(0);
+    expect(r.stdout.trim()).toMatch(/^\d+\.\d+\.\d+/);
+  });
+
   test('no args prints help and exits 0', () => {
     const r = runCli([]);
     expect(r.status).toBe(0);

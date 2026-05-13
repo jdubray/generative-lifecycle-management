@@ -64,6 +64,7 @@ export async function runStatus(args: ParsedArgs, opts: RunStatusOptions = {}): 
   }
 
   if (summaryError instanceof CliError) return summaryError.exitCode;
+  if (summaryError) return 1;
   return 0;
 }
 
