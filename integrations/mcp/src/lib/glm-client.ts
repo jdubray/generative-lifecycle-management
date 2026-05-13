@@ -88,6 +88,38 @@ export interface AcceptanceVerifyResult {
   durationMs: number;
 }
 
+export interface RecordGenerationRequest {
+  componentId: string;
+  files: Array<{ path: string; sha256: string; bytes: number }>;
+  verifierExitCode: number;
+  bindingHash?: string;
+  generatorIdentity?: string;
+  durationMs?: number;
+  note?: string | null;
+}
+
+export interface ProvenanceEvent {
+  id: string;
+  workspaceId: string;
+  occurredAt: string;
+  subjectFile: string;
+  subjectDigest: string;
+  sekkeiRoot: string;
+  sekkeiRev: string;
+  bindingHash: string;
+  generatorLlm: string;
+  generatorPromptVersion: string;
+  durationMs: number;
+  note: string | null;
+}
+
+export interface EditLock {
+  nodeId: string;
+  heldBy: string;
+  heartbeatAt: string;
+  expiresAt: string;
+}
+
 export class GlmClient {
   public readonly baseUrl: string;
   private readonly token: string | undefined;
@@ -180,6 +212,65 @@ export class GlmClient {
     return result;
   }
 
+  /**
+   * POST /api/v1/workspaces/:id/record-generation
+   *
+   * Attest a completed MCP-driven generation: inserts one provenance row
+   * and one audit row, returns the provenance. The server computes
+   * sekkeiRev + generatorPromptVersion from the current sekkei state.
+   */
+  async recordGeneration(
+    workspaceId: string,
+    req: RecordGenerationRequest,
+  ): Promise<ProvenanceEvent> {
+    const { provenance } = await this.post<{ provenance: ProvenanceEvent }>(
+      `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/record-generation`,
+      req,
+    );
+    return provenance;
+  }
+
+  /**
+   * POST /api/v1/workspaces/:id/nodes/:glm_id/lock
+   *
+   * Acquire the edit lock for a node. Throws HttpError(423) if held by a
+   * different user. Used by `glm_apply_patch` to bracket the GET/PUT.
+   */
+  async acquireLock(workspaceId: string, glmId: string): Promise<EditLock> {
+    const { lock } = await this.post<{ lock: EditLock }>(
+      `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/nodes/${encodeURIComponent(glmId)}/lock`,
+      {},
+    );
+    return lock;
+  }
+
+  /** DELETE /api/v1/workspaces/:id/nodes/:glm_id/lock */
+  async releaseLock(workspaceId: string, glmId: string): Promise<void> {
+    await this.request<unknown>(
+      'DELETE',
+      `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/nodes/${encodeURIComponent(glmId)}/lock`,
+    );
+  }
+
+  /**
+   * PUT /api/v1/workspaces/:id/nodes/:glm_id
+   *
+   * Replace a node's body. Requires the caller to hold the edit lock —
+   * the new MCP `glm_apply_patch` tool wraps this with acquire/release.
+   */
+  async updateNodeBody(
+    workspaceId: string,
+    glmId: string,
+    body: Record<string, unknown>,
+  ): Promise<NodeWithChildren['node']> {
+    const { node } = await this.request<{ node: NodeWithChildren['node'] }>(
+      'PUT',
+      `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/nodes/${encodeURIComponent(glmId)}`,
+      { body },
+    );
+    return node;
+  }
+
   // ----------------------------------------------------------------- core
 
   private async get<T>(path: string): Promise<T> {
@@ -190,7 +281,11 @@ export class GlmClient {
     return this.request<T>('POST', path, body);
   }
 
-  private async request<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
+  private async request<T>(
+    method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+    path: string,
+    body?: unknown,
+  ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const headers: Record<string, string> = { Accept: 'application/json' };
     if (this.token) headers.Authorization = `Bearer ${this.token}`;
@@ -211,7 +306,13 @@ export class GlmClient {
       const text = await safeReadText(response);
       throw new HttpError(url, response.status, text);
     }
-    return (await response.json()) as T;
+
+    // DELETE handlers may respond with no JSON body.
+    const ct = response.headers.get('content-type') ?? '';
+    if (!ct.includes('application/json')) return undefined as unknown as T;
+    const text = await response.text();
+    if (text.length === 0) return undefined as unknown as T;
+    return JSON.parse(text) as T;
   }
 }
 

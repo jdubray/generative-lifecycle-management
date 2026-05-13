@@ -10,6 +10,8 @@ import {
   RunAcceptanceVerifierInputSchema,
   runRunAcceptanceVerifier,
 } from './run-acceptance-verifier.ts';
+import { RecordGenerationInputSchema, runRecordGeneration } from './record-generation.ts';
+import { ApplyPatchInputSchema, runApplyPatch } from './apply-patch.ts';
 
 /**
  * Register every GLM tool against the provided MCP server instance. Kept
@@ -95,5 +97,35 @@ export function registerTools(
       inputSchema: RunAcceptanceVerifierInputSchema,
     },
     async (args) => runRunAcceptanceVerifier(args, deps),
+  );
+
+  server.registerTool(
+    'glm_record_generation',
+    {
+      title: 'Record a completed MCP-driven generation',
+      description:
+        'Attest that Claude Code generated the listed files for a component, ' +
+        'and that the acceptance verifier returned `verifier_exit_code`. Inserts ' +
+        'a provenance row + audit row on the server so the generation appears in ' +
+        'the UI and can be diffed against future regenerations. Returns the ' +
+        'inserted provenance.',
+      inputSchema: RecordGenerationInputSchema,
+    },
+    async (args) => runRecordGeneration(args, deps),
+  );
+
+  server.registerTool(
+    'glm_apply_patch',
+    {
+      title: 'Apply an RFC-6902 JSON Patch to a sekkei node body',
+      description:
+        'Patch a node body with one or more JSON-Patch ops (add / remove / replace / move). ' +
+        "The MCP server fetches the current node, applies the patch locally, " +
+        'acquires the edit lock, PUTs the new body, and releases the lock. ' +
+        'Used by refine flows when Claude knows what to change but rewriting the ' +
+        'whole body would be wasteful.',
+      inputSchema: ApplyPatchInputSchema,
+    },
+    async (args) => runApplyPatch(args, deps),
   );
 }

@@ -194,6 +194,122 @@ describe('GlmClient.runAcceptanceVerify', () => {
   });
 });
 
+describe('GlmClient.recordGeneration', () => {
+  test('POSTs the full record-generation request and unwraps {provenance}', async () => {
+    let seenUrl = '';
+    let seenBody = '';
+    const client = new GlmClient({
+      baseUrl: 'http://localhost:3300',
+      token: 'tok',
+      fetch: fakeFetch((url, init) => {
+        seenUrl = url;
+        seenBody = (init.body as string) ?? '';
+        return new Response(
+          JSON.stringify({
+            provenance: {
+              id: 'p-1',
+              workspaceId: 'ws-1',
+              occurredAt: '2026-05-13T16:00:00Z',
+              subjectFile: 'src/x.ts',
+              subjectDigest: 'sha256:dd',
+              sekkeiRoot: 'acme:c',
+              sekkeiRev: 'sha256:aa',
+              bindingHash: 'sha256:bb',
+              generatorLlm: 'claude-code/sonnet-4-6',
+              generatorPromptVersion: 'sha256:cc',
+              durationMs: 100,
+              note: null,
+            },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }),
+    });
+    const out = await client.recordGeneration('ws-1', {
+      componentId: 'acme:c',
+      files: [{ path: 'src/x.ts', sha256: `sha256:${'a'.repeat(64)}`, bytes: 100 }],
+      verifierExitCode: 0,
+      bindingHash: 'sha256:bb',
+    });
+    expect(seenUrl).toBe('http://localhost:3300/api/v1/workspaces/ws-1/record-generation');
+    const parsed = JSON.parse(seenBody);
+    expect(parsed.componentId).toBe('acme:c');
+    expect(parsed.verifierExitCode).toBe(0);
+    expect(parsed.files).toHaveLength(1);
+    expect(out.id).toBe('p-1');
+  });
+});
+
+describe('GlmClient.acquireLock / releaseLock', () => {
+  test('acquireLock POSTs to .../lock and unwraps {lock}', async () => {
+    let seenUrl = '';
+    const client = new GlmClient({
+      baseUrl: 'http://localhost:3300',
+      token: 'tok',
+      fetch: fakeFetch((url) => {
+        seenUrl = url;
+        return new Response(
+          JSON.stringify({
+            lock: {
+              nodeId: 'n-1',
+              heldBy: 'solo',
+              heartbeatAt: '2026-05-13T16:00:00Z',
+              expiresAt: '2026-05-13T16:00:30Z',
+            },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }),
+    });
+    const out = await client.acquireLock('ws-1', 'acme:c.spec.prompt');
+    expect(seenUrl).toBe('http://localhost:3300/api/v1/workspaces/ws-1/nodes/acme%3Ac.spec.prompt/lock');
+    expect(out.heldBy).toBe('solo');
+  });
+
+  test('releaseLock DELETEs', async () => {
+    let seenUrl = '';
+    let seenMethod = '';
+    const client = new GlmClient({
+      baseUrl: 'http://localhost:3300',
+      token: 'tok',
+      fetch: fakeFetch((url, init) => {
+        seenUrl = url;
+        seenMethod = init.method ?? '';
+        return new Response('{"released":true}', {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }),
+    });
+    await client.releaseLock('ws-1', 'acme:c.spec.prompt');
+    expect(seenMethod).toBe('DELETE');
+    expect(seenUrl).toBe('http://localhost:3300/api/v1/workspaces/ws-1/nodes/acme%3Ac.spec.prompt/lock');
+  });
+});
+
+describe('GlmClient.updateNodeBody', () => {
+  test('PUTs {body: ...} to nodes/:glm_id and unwraps {node}', async () => {
+    let seenMethod = '';
+    let seenBody = '';
+    const client = new GlmClient({
+      baseUrl: 'http://localhost:3300',
+      token: 'tok',
+      fetch: fakeFetch((_url, init) => {
+        seenMethod = init.method ?? '';
+        seenBody = (init.body as string) ?? '';
+        return new Response(JSON.stringify({ node: { glmId: 'acme:c', contentHash: 'sha256:xx' } }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }),
+    });
+    const out = await client.updateNodeBody('ws-1', 'acme:c', { boundary: 'updated' });
+    expect(seenMethod).toBe('PUT');
+    expect(JSON.parse(seenBody)).toEqual({ body: { boundary: 'updated' } });
+    expect(out.contentHash).toBe('sha256:xx');
+  });
+});
+
 describe('GlmClient.getComponentSpec', () => {
   test('unwraps the {spec} envelope', async () => {
     const payload = {
