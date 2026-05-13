@@ -136,14 +136,15 @@ Each phase is one PR-sized chunk. Each ends with `bun test` green and a working 
 
 **Done when:** ~~Against a running GLM server with a seeded workspace, `glm status` shows node counts.~~ Done. 38 unit + e2e tests pass; CLI exits 69 against an unreachable server and prints a helpful pointer.
 
-### Phase 3 — Claude CLI subprocess wrapper
+### Phase 3 — Claude CLI subprocess wrapper ✅
 
-- `claude-cli.ts`: typed `runOneShot({ systemPromptFile, userText, model })` → stdout string. Spawns `claude --print --model … --system-prompt-file …`.
-- Windows-safe termination (use `taskkill /pid <PID> /T /F` on win32; `SIGTERM` elsewhere).
-- Error handling: detect "claude not on PATH", surface as typed error with exit-code mapping.
-- Stream-json variant (`runInteractive`) deferred to Phase 6.
+- `src/lib/claude-cli.ts`: `runOneShot({ userText, systemPromptFile, model, claudeBin, timeoutMs, spawnImpl })` → `{ stdout, stderr, exitCode, durationMs }`. Spawns `claude --print [--model …] [--system-prompt-file …]`, pipes user text to stdin.
+- `ClaudeCliNotFoundError` (exit 69) on ENOENT; `ClaudeCliFailedError` (exit 70) on non-zero exit or timeout.
+- Windows-safe termination via `taskkill /pid <PID> /T /F`; SIGTERM on POSIX.
+- `claudeBin` accepts a string or `[command, ...prefixArgs]` so tests can delegate to `bun run mock-claude.ts`.
+- Stream-json variant deferred to Phase 6.
 
-**Done when:** Unit test using a mock `claude` script (echoes input to stdout) passes; "not on PATH" produces the spec'd error.
+**Done when:** ~~Unit test using a mock `claude` script passes; "not on PATH" produces the spec'd error.~~ Done. 10 tests cover argv composition (--print, --model, --system-prompt-file), stdin/stdout round-trip (including 60 KB payloads), ClaudeCliNotFoundError, ClaudeCliFailedError on non-zero exit, and the timeout path.
 
 ### Phase 4 — Vibe design (UC-01)
 
