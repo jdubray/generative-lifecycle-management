@@ -193,8 +193,10 @@ See **`specification/sekkei_specification.md`** for the full v1.1 narrative.
 
 ## The TodoMVC validation case
 
-`todo-mvc/sekkei-todomvc/` is a forward-designed sekkei for a canonical TodoMVC
-clone backed by a Bun + Hono + bun:sqlite (WAL) REST API. 57 nodes total:
+`todo-mvc/sekkei-todomvc/` is a sekkei reverse-engineered by Claude from the
+live [TodoMVC reference app](https://feature-hub.io/todomvc/), with the
+instruction to imagine a Bun + Hono + bun:sqlite (WAL) REST backend for it.
+The resulting sekkei was then imported into GLM. 57 nodes total:
 
 - 1 System, 2 Capabilities (`todo_management`, `web_ui`)
 - 8 Components (repository, filter engine, REST API, PWA shell, add-todo input,
@@ -259,10 +261,37 @@ that have always defeated MDSE-style approaches:
    relationship back to the node that produced it. Change management becomes a
    PLM concern, not an archaeology project.
 
-The companion essay (the GLM essay, §C "Formal structure of a sekkei") expands
+The companion essay (the GLM essay, [§C "Formal structure of a sekkei"](https://www.linkedin.com/pulse/formal-structure-sekkei-jean-jacques-d--2pbzc/)) expands
 on the seven GLM processes (Change Management, Variant Resolution, Where-Used,
 Effectivity, Drift Reconciliation, Reuse, Provenance) and the two-dimensional
 cache that make this economical at scale.
+
+---
+
+## Vibe designing
+
+GLM shifts the focus from writing code to design thinking — moving from
+sketching to blueprinting. There are two adoption paths:
+
+**Solo.** "Vibe design" your project: prompt Claude (or your preferred LLM) to
+reverse-engineer or author a sekkei from an existing app or a plain-language
+description. The AI writes the sekkei; you import it into GLM and let the
+generator produce the code. The TodoMVC example in this repo was built exactly
+this way — Claude reverse-engineered the frontend from
+[feature-hub.io/todomvc](https://feature-hub.io/todomvc/) and imagined the
+backend, producing a 57-node sekkei that was then imported and regenerated into
+a working implementation.
+
+**Team.** Bring structure to the review process: teammates author and iterate on
+well-organized design specs, trust the code generation, and use GLM's
+lifecycle tools (change management, variant resolution, provenance) to keep the
+design authoritative as the system evolves.
+
+> **Note:** vibe designing currently requires a **Claude API key**, as GLM is
+> primarily a team tool that routes generation through the server-side pipeline.
+> Solo CLI integration and [Puffin](https://github.com/kizo-core/puffin) support
+> are in active development to make this path fully self-contained for
+> individuals.
 
 ---
 
