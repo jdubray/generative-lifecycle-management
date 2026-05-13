@@ -504,16 +504,17 @@ function aggregateDigest(files: Array<{ sha256: string }>): string {
 // loop turning and keep-alive frames flowing for the whole duration.
 
 /**
- * Default claude runner — switched from node:child_process.spawn to Bun.spawn.
+ * Default claude runner — Bun.spawn invoking `claude --print "<prompt>"`.
  *
- * Why: on Windows, `claude` is a `.cmd` shim and node's spawn cannot reliably
- * find it (no PATHEXT resolution without shell:true) AND piping stdin through
- * the cmd.exe wrapper to the underlying node process is fragile. Bun.spawn
- * handles `.cmd` / `.bat` resolution natively and provides a clean async pipe.
+ * Why no stdin: on Windows, `claude` is a `.cmd` shim that wraps node. Stdin
+ * piping through the cmd.exe layer is fragile — neither node:child_process
+ * nor Bun.spawn reliably delivered our piped user prompt to the underlying
+ * node process. The CLI happily reads from a terminal-like pipe (PowerShell
+ * `| claude --print` works), but a programmatic pipe via spawn hangs.
  *
- * We also pass the user prompt via a temp file + cmd-shell stdin redirection
- * is NOT needed — Bun.spawn's stdin pipe works reliably for binary streams on
- * Windows.
+ * The fix is to pass the user prompt as the last positional argument. Bun's
+ * spawn builds the OS-level argv array directly, so multi-line and
+ * special-character content is delivered byte-perfect without shell escaping.
  *
  * A 240-second internal timeout ensures we fail fast if claude hangs, before
  * Bun.serve's 255s idleTimeout kills the upstream HTTP connection.
@@ -525,8 +526,14 @@ function defaultClaudeRunner(): ClaudeRunner {
     let proc;
     try {
       proc = Bun.spawn({
-        cmd: ['claude', '--print', '--model', model, '--system-prompt-file', systemPromptFile],
-        stdin: 'pipe',
+        cmd: [
+          'claude',
+          '--print',
+          '--model', model,
+          '--system-prompt-file', systemPromptFile,
+          userText, // ← user prompt as positional arg; no stdin needed
+        ],
+        stdin: 'ignore',
         stdout: 'pipe',
         stderr: 'pipe',
       });
@@ -535,16 +542,7 @@ function defaultClaudeRunner(): ClaudeRunner {
       throw err;
     }
 
-    // Write the user turn and close stdin.
-    try {
-      proc.stdin.write(userText);
-      await proc.stdin.end();
-    } catch {
-      // Child died before reading stdin — the exit code below surfaces it.
-    }
-
-    // Hard timeout — kills the subprocess if it hasn't exited in 240s. This
-    // protects the HTTP request from outliving Bun.serve's idleTimeout (255s).
+    // Hard timeout — kills the subprocess if it hasn't exited in 240s.
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
@@ -555,7 +553,6 @@ function defaultClaudeRunner(): ClaudeRunner {
       }
     }, CLAUDE_TIMEOUT_MS);
 
-    // Drain stdout + stderr concurrently with proc.exited.
     const [stdout, stderr, exitCode] = await Promise.all([
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),
