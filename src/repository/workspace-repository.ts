@@ -27,6 +27,7 @@ export interface WorkspaceGitAttach {
 const WORKSPACE_COLS = [
   'id', 'slug', 'name', 'created_at',
   'git_remote', 'git_ref', 'git_commit', 'git_clone_dir', 'git_forge', 'git_auto_push',
+  'source_dir',
 ].join(', ');
 
 export class WorkspaceRepository {
@@ -37,6 +38,7 @@ export class WorkspaceRepository {
   private readonly stAttachGit: Statement;
   private readonly stDetachGit: Statement;
   private readonly stUpdateGitCommit: Statement;
+  private readonly stSetSourceDir: Statement;
   private readonly stInsertMember: Statement;
   private readonly stFindMember: Statement;
   private readonly stListMembers: Statement;
@@ -69,6 +71,9 @@ export class WorkspaceRepository {
     this.stUpdateGitCommit = db.prepare(
       'UPDATE workspaces SET git_commit = ? WHERE id = ?',
     );
+    this.stSetSourceDir = db.prepare(
+      'UPDATE workspaces SET source_dir = ? WHERE id = ?',
+    );
     this.stInsertMember = db.prepare(
       'INSERT INTO workspace_members (workspace_id, user_id, role, joined_at) VALUES (?, ?, ?, ?)',
     );
@@ -85,7 +90,7 @@ export class WorkspaceRepository {
     this.stInsert.run(w.id, w.slug, w.name, createdAt);
     return rowToWorkspace({ id: w.id, slug: w.slug, name: w.name, created_at: createdAt,
       git_remote: null, git_ref: null, git_commit: null, git_clone_dir: null,
-      git_forge: null, git_auto_push: 0 });
+      git_forge: null, git_auto_push: 0, source_dir: null });
   }
 
   findById(id: string): Workspace | null {
@@ -121,6 +126,11 @@ export class WorkspaceRepository {
     this.stUpdateGitCommit.run(sha, workspaceId);
   }
 
+  /** Set (or clear) the workspace's local `source_dir` used by `glm generate`. */
+  setSourceDir(workspaceId: string, sourceDir: string | null): void {
+    this.stSetSourceDir.run(sourceDir, workspaceId);
+  }
+
   /** All workspaces that have a git remote attached. */
   listAttached(): Workspace[] {
     return (this.stListAttached.all() as WorkspaceRow[]).map(rowToWorkspace);
@@ -153,6 +163,7 @@ interface WorkspaceRow {
   git_clone_dir: string | null;
   git_forge: string | null;
   git_auto_push: number;
+  source_dir: string | null;
 }
 
 interface MemberRow {
@@ -174,6 +185,7 @@ function rowToWorkspace(r: WorkspaceRow): Workspace {
     gitCloneDir: r.git_clone_dir,
     gitForge: (r.git_forge as 'github' | 'gitlab' | null) ?? null,
     gitAutoPush: r.git_auto_push === 1,
+    sourceDir: r.source_dir,
   };
 }
 

@@ -20,6 +20,7 @@ import { staticRoutes } from './routes/static.ts';
 import { releaseRoutes } from './routes/releases.ts';
 import { verifierRoutes } from './routes/verifier.ts';
 import { vibeRoutes } from './routes/vibe.ts';
+import { soloGenerateRoutes } from './routes/solo-generate.ts';
 import { HmacSigner } from '../generation/attestation.ts';
 import { EventBus } from '../ws/event-bus.ts';
 import { GitClient } from '../git/git-client.ts';
@@ -85,6 +86,7 @@ export function createApp(input: AppDeps, opts: CreateAppOptions = {}): { app: H
   api.route('/', releaseRoutes());
   api.route('/', verifierRoutes());
   api.route('/', vibeRoutes());
+  api.route('/', soloGenerateRoutes());
   api.route('/', importRoutes());
   app.route('/api/v1', api);
 

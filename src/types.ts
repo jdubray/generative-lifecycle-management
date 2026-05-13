@@ -49,6 +49,8 @@ export interface Workspace {
   gitForge: 'github' | 'gitlab' | null;
   /** When true, ECN commits are pushed immediately. */
   gitAutoPush: boolean;
+  /** Absolute path to the local source tree used by solo-mode `glm generate`. */
+  sourceDir: string | null;
 }
 
 export type WorkspaceMemberRole = 'owner' | 'maintainer' | 'editor' | 'reviewer' | 'viewer';
