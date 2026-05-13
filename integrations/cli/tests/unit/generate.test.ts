@@ -130,6 +130,9 @@ function makeOpts(extra: Partial<RunGenerateOptions> = {}): RunGenerateOptions &
     resolveOverrides: { env: {}, fileExists: () => false, readFile: () => '' },
     colorEnabled: false,
     claudeRunner: async () => ({ stdout: SAMPLE_CLAUDE_OUTPUT, stderr: '' }),
+    // Most tests don't care about the platform guard; default to linux so the
+    // happy paths exercise the orchestration regardless of where tests run.
+    platform: 'linux',
     ...extra,
   };
 }
@@ -347,6 +350,36 @@ describe('glm generate', () => {
       },
     );
     expect(exit).toBe(66);
+  });
+
+  test('refuses to run on Windows without --allow-unsupported-platform', async () => {
+    const opts = makeOpts({ platform: 'win32' });
+    tmpDirs.push(opts.tmpSourceDir);
+    const exit = await runGenerate(
+      parseCommandLine(['generate', `--component=${COMPONENT}`]),
+      { ...opts, clientFactory: () => fakeClient({}) },
+    );
+    expect(exit).toBe(70);
+    const err = (opts.stderr as StringStream).buffer;
+    expect(err).toContain("not supported on Windows");
+    expect(err).toContain('/glm-generate');
+  });
+
+  test('--allow-unsupported-platform bypasses the Windows guard', async () => {
+    const opts = makeOpts({ platform: 'win32' });
+    tmpDirs.push(opts.tmpSourceDir);
+    const exit = await runGenerate(
+      parseCommandLine([
+        'generate',
+        `--component=${COMPONENT}`,
+        '--allow-unsupported-platform',
+      ]),
+      {
+        ...opts,
+        clientFactory: () => fakeClient({ getComponentSpec: async () => sampleSpec(opts.tmpSourceDir) }),
+      },
+    );
+    expect(exit).toBe(0);
   });
 
   test('HTTP 422 from acceptance-verify → exit 70', async () => {

@@ -65,6 +65,15 @@ export interface RunGenerateOptions {
   colorEnabled?: boolean;
   /** Override claude-cli spawn for tests. */
   claudeRunner?: (opts: RunOneShotOptions) => Promise<{ stdout: string; stderr: string }>;
+  /**
+   * Override `process.platform` for tests. The CLI refuses to run `generate`
+   * on Windows because spawning claude from a CLI process there has the same
+   * hang we hit server-side — see docs/mcp-fork-plan.md. Windows users are
+   * redirected to `/glm-generate` in Claude Code (via the MCP integration).
+   */
+  platform?: NodeJS.Platform;
+  /** Bypass the Windows guard (escape hatch for diagnostics). */
+  allowUnsupportedPlatform?: boolean;
 }
 
 export interface GenerateResult {
@@ -81,6 +90,21 @@ export async function runGenerate(args: ParsedArgs, opts: RunGenerateOptions = {
   const io = opts.io ?? process;
   const stdout = io.stdout;
   const stderr = io.stderr;
+
+  const platform = opts.platform ?? process.platform;
+  const allowUnsupported =
+    opts.allowUnsupportedPlatform === true || args.flags['allow-unsupported-platform'] === true;
+  if (platform === 'win32' && !allowUnsupported) {
+    stderr.write(
+      `glm: 'glm generate' is not supported on Windows. Spawning claude from a CLI process\n` +
+        `     hangs the same way it does server-side (Windows handle-inheritance into the\n` +
+        `     claude.exe → cmd.exe → node grandchild). Use Claude Code instead:\n\n` +
+        `       /glm-generate <component_id>\n\n` +
+        `     See integrations/mcp/README.md for the one-time install.\n` +
+        `     (Force-try anyway with --allow-unsupported-platform — at your own risk.)\n`,
+    );
+    return 70;
+  }
 
   let config: ResolvedConfig;
   try {

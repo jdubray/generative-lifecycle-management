@@ -626,23 +626,24 @@ Exit 0 on overall pass, 1 on any gate failure. `--verbose` shows the full issue 
 
 ### 8.7 Generating code (UC-02)
 
+> **Platform note.** `glm generate` is supported on macOS and Linux. On Windows it is blocked — spawning `claude.exe` from a long-running parent process hangs reliably (handle inheritance into the `claude → cmd.exe → node` grandchild). Windows users should run `/glm-generate <component_id>` in Claude Code with the GLM MCP integration installed; see [`integrations/mcp/README.md`](../integrations/mcp/README.md). Pass `--allow-unsupported-platform` to bypass the guard at your own risk.
+
 ```bash
 glm generate \
   --component acme:web.shop.catalog.product_repository \
   --source-dir /abs/path/to/code
 ```
 
-The server:
+The CLI:
 
-1. Resolves the component's `spec.prompt` and `spec.acceptance` nodes.
-2. Builds a context bundle from `spec.prompt.body.context_bundle[]` (capped at ~100K tokens).
-3. Spawns `claude --print` with HARD CONSTRAINTS that require a multi-file delimited response (`=== FILE: <path> ===`).
-4. Validates every emitted path against `source_dir` (rejects absolute paths and `..` segments).
-5. Writes the files.
-6. Runs `spec.acceptance.body.verifier.command` with `cwd = source_dir`.
-7. On verifier exit 0: records a `provenance_events` row and returns the result.
+1. PATCHes the workspace with `--source-dir` (when provided).
+2. Calls `GET /workspaces/:id/components/:glm_id/spec` to fetch the component's prompt + acceptance + resolved context bundle.
+3. Spawns `claude --print` **in your interactive shell** with HARD CONSTRAINTS requiring a multi-file delimited response (`=== FILE: <path> ===`).
+4. Parses the response, validates every path against `source_dir` (rejects absolute paths and `..` segments), and writes the files.
+5. Calls `POST /workspaces/:id/acceptance-verify` to run `spec.acceptance.body.verifier.command` with `cwd = source_dir`.
+6. On verifier exit 0: calls `POST /workspaces/:id/record-generation` to insert a `provenance_events` row + audit entry.
 
-The output lists each written file with its byte count, the verifier exit code, and the provenance id:
+The same flow runs in Claude Code via `/glm-generate` (driven by the MCP server, written in markdown — see [`integrations/mcp/commands/glm-generate.md`](../integrations/mcp/commands/glm-generate.md)). Output:
 
 ```
 Generated acme:web.shop.catalog.product_repository

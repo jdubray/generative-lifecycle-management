@@ -54,7 +54,7 @@ glm --help
 | `glm init` | 4.5 | ✅ implemented |
 | `glm vibe --from-dir <path>` | 7 | ✅ implemented |
 | `glm verify` | 5 | ✅ implemented |
-| `glm generate --component <id>` | 6 | ✅ implemented |
+| `glm generate --component <id>` | 6 | ✅ implemented (POSIX); blocked on Windows — use `/glm-generate` |
 | `glm refine --node <id>` | 8 | ✅ implemented |
 | `glm import-sekkei <file>` | 8 | ✅ implemented |
 
@@ -69,6 +69,18 @@ All commands read configuration from (in order):
 3. `~/.glm/config.json`
 
 Defaults: `port=3000`, `workspace=default`, `model=claude-sonnet-4-6`.
+
+---
+
+## Platform support
+
+| Command | macOS / Linux | Windows |
+|---|---|---|
+| `init`, `status`, `verify`, `import-sekkei` | ✅ | ✅ |
+| `vibe`, `refine` | ✅ | ✅ (spawns claude in the user's shell) |
+| `generate` | ✅ | ❌ (use `/glm-generate` in Claude Code instead) |
+
+Windows users get a clear error from `glm generate` directing them to the MCP slash-command flow. The root cause is documented in [`docs/mcp-fork-plan.md`](../../docs/mcp-fork-plan.md): spawning `claude.exe` from a long-running Bun/Node process on Windows hangs (handle-inheritance into the `claude.exe → cmd.exe → node` grandchild). The `--allow-unsupported-platform` flag bypasses the guard if you want to experiment.
 
 ---
 
