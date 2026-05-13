@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { isAbsolute } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { type AppEnv, requirePrincipal } from '../middleware/auth.ts';
 import { httpError } from '../middleware/error.ts';
@@ -77,6 +78,31 @@ export function workspaceRoutes(): Hono<AppEnv> {
       payload: { slug: workspace.slug, name: workspace.name },
     });
     return c.json({ workspace }, 201);
+  });
+
+  // PATCH /workspaces/:id — partial update. v1 supports `sourceDir` only; the
+  // CLI's client-side generate flow uses this to persist --source-dir before
+  // calling the spec / verifier / record-generation endpoints (which all read
+  // source_dir from the workspace row).
+  app.patch('/workspaces/:id', async (c) => {
+    requirePrincipal(c);
+    const workspaceId = c.req.param('id');
+    const ws = c.var.repos.workspaces.findById(workspaceId);
+    if (!ws) throw httpError(404, `workspace ${workspaceId} not found`);
+
+    const body = (await c.req.json().catch(() => ({}))) as { sourceDir?: unknown };
+    if (body.sourceDir !== undefined) {
+      if (typeof body.sourceDir !== 'string') {
+        throw httpError(400, 'sourceDir must be a string');
+      }
+      const sd = body.sourceDir.trim();
+      if (sd.length === 0) throw httpError(400, 'sourceDir must be non-empty');
+      if (!isAbsolute(sd)) throw httpError(400, `sourceDir must be absolute (got '${sd}')`);
+      c.var.repos.workspaces.setSourceDir(workspaceId, sd);
+    }
+
+    const updated = c.var.repos.workspaces.findById(workspaceId);
+    return c.json({ workspace: updated });
   });
 
   // GET /workspaces/:id — single workspace record.

@@ -1,16 +1,20 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, isAbsolute, join, normalize, resolve, sep } from 'node:path';
+import { dirname, join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import type { NodeRepository } from '../repository/node-repository.ts';
 import type { ProvenanceRepository } from '../repository/provenance-repository.ts';
 import type { AuditRepository } from '../repository/audit-repository.ts';
 import type { WorkspaceRepository } from '../repository/workspace-repository.ts';
-import type { ProvenanceEvent, SekkeiNode } from '../types.ts';
+import type { ProvenanceEvent } from '../types.ts';
 import {
   aggregateDigest,
   buildContextBundle,
-  HARD_CONSTRAINTS,
+  buildSystemPrompt,
+  buildUserPrompt,
+  ComponentSpecError,
+  parseMultiFileResponse,
+  resolveSafePath,
   type AcceptanceBody,
   type PromptBody,
 } from './component-spec.ts';
@@ -19,6 +23,11 @@ import {
   type VerifierRunResult as SharedVerifierRunResult,
   type VerifierRunner as SharedVerifierRunner,
 } from './acceptance-runner.ts';
+
+// Re-export the multi-file parser for backward compatibility — historical
+// callers imported `parseMultiFileResponse` from this module. The canonical
+// home is component-spec.ts; this alias keeps existing imports working.
+export { parseMultiFileResponse } from './component-spec.ts';
 
 /**
  * Solo-mode code generation (docs/solo-mode-spec.md UC-02).
@@ -103,7 +112,6 @@ export interface SoloGenerateDeps {
 // --- Entry point -----------------------------------------------------------
 
 const DEFAULT_MODEL = 'claude-sonnet-4-6';
-const FILE_HEADER_RE = /^===\s*FILE:\s*(.+?)\s*===\s*$/;
 
 export async function runSoloGenerate(
   deps: SoloGenerateDeps,
@@ -220,8 +228,18 @@ export async function runSoloGenerate(
     }
   }
 
-  // 6. Parse the multi-file response.
-  const files = parseMultiFileResponse(llmStdout, outputs.map((o) => o.path));
+  // 6. Parse the multi-file response. Shared parser throws ComponentSpecError;
+  // rewrap as SoloGenerateError so the legacy route's catch (which expects
+  // SoloGenerateError) still maps correctly to HTTP status.
+  let files;
+  try {
+    files = parseMultiFileResponse(llmStdout, outputs.map((o) => o.path));
+  } catch (err) {
+    if (err instanceof ComponentSpecError) {
+      throw new SoloGenerateError(err.message, err.status);
+    }
+    throw err;
+  }
   log('parsed', { files_parsed: files.length });
 
   // 7. Write files (under source_dir, or a staging dir when dry-run).
@@ -229,7 +247,15 @@ export async function runSoloGenerate(
   const written: SoloGenerateResult['filesWritten'] = [];
   try {
     for (const file of files) {
-      const safePath = resolveSafePath(outputDir, file.path);
+      let safePath;
+      try {
+        safePath = resolveSafePath(outputDir, file.path);
+      } catch (err) {
+        if (err instanceof ComponentSpecError) {
+          throw new SoloGenerateError(err.message, err.status);
+        }
+        throw err;
+      }
       mkdirSync(dirname(safePath), { recursive: true });
       writeFileSync(safePath, file.content, 'utf8');
       const sha256 = `sha256:${createHash('sha256').update(file.content, 'utf8').digest('hex')}`;
@@ -321,113 +347,10 @@ export async function runSoloGenerate(
   };
 }
 
-// --- Prompt assembly -------------------------------------------------------
-// Types and shared helpers live in `./component-spec.ts` so the MCP composite
-// endpoint and this server-side flow stay in lock-step. `buildSystemPrompt`
-// and `buildUserPrompt` below remain here — they're specific to the
-// claude-CLI invocation path and disappear with this file in Phase F.
-
-function buildSystemPrompt(
-  promptBody: PromptBody,
-  contextBundleText: string,
-  outputs: Array<{ path: string; description?: string }>,
-): string {
-  const tpl = (promptBody.prompt_template ?? '').trim();
-  const outputBlock = outputs
-    .map((o) => `  - path: ${o.path}\n    description: ${o.description ?? ''}`)
-    .join('\n');
-  return [
-    tpl,
-    '',
-    'CONTEXT BUNDLE:',
-    contextBundleText,
-    '',
-    'OUTPUTS to produce:',
-    outputBlock,
-    '',
-    HARD_CONSTRAINTS,
-  ].join('\n');
-}
-
-function buildUserPrompt(
-  component: SekkeiNode,
-  outputs: Array<{ path: string; description?: string }>,
-): string {
-  return [
-    `Generate the implementation of component '${component.glmId}' (${component.title}).`,
-    `Produce exactly ${outputs.length} file${outputs.length === 1 ? '' : 's'}:`,
-    ...outputs.map((o) => `  - ${o.path}`),
-    '',
-    'Each file must start with `=== FILE: <path> ===` on its own line.',
-  ].join('\n');
-}
-
-// --- Multi-file response parser -------------------------------------------
-
-interface ParsedFile {
-  path: string;
-  content: string;
-}
-
-export function parseMultiFileResponse(stdout: string, expectedPaths: string[]): ParsedFile[] {
-  const lines = stdout.split(/\r?\n/);
-  const files: ParsedFile[] = [];
-  let current: { path: string; lines: string[] } | null = null;
-
-  for (const line of lines) {
-    const m = line.match(FILE_HEADER_RE);
-    if (m) {
-      if (current) files.push({ path: current.path, content: current.lines.join('\n') });
-      current = { path: (m[1] ?? '').trim(), lines: [] };
-      continue;
-    }
-    if (current) current.lines.push(line);
-  }
-  if (current) files.push({ path: current.path, content: current.lines.join('\n') });
-
-  if (files.length === 0) {
-    throw new SoloGenerateError(
-      `Claude response contained no \`=== FILE: <path> ===\` markers. ` +
-        `Did the model emit prose instead of the multi-file format?`,
-    );
-  }
-
-  // Each parsed path must match one of the expected outputs[].path values.
-  const expectedSet = new Set(expectedPaths.map(normalize));
-  for (const f of files) {
-    const normalized = normalize(f.path);
-    if (!expectedSet.has(normalized)) {
-      throw new SoloGenerateError(
-        `Claude emitted unexpected file path '${f.path}'. ` +
-          `Expected one of: ${[...expectedSet].join(', ')}`,
-      );
-    }
-  }
-
-  // Strip a single trailing empty line (artifact of split('\n')).
-  return files.map((f) => ({
-    path: f.path,
-    content: f.content.endsWith('\n') ? f.content : `${f.content}\n`,
-  }));
-}
-
-// --- Path-safety + filesystem helpers -------------------------------------
-
-function resolveSafePath(baseDir: string, candidate: string): string {
-  if (isAbsolute(candidate)) {
-    throw new SoloGenerateError(`output path '${candidate}' must be relative`);
-  }
-  if (candidate.includes('..')) {
-    throw new SoloGenerateError(`output path '${candidate}' must not contain '..'`);
-  }
-  const baseAbs = resolve(baseDir);
-  const target = resolve(baseAbs, candidate);
-  if (target !== baseAbs && !target.startsWith(baseAbs + sep)) {
-    throw new SoloGenerateError(`output path '${candidate}' escapes source_dir`);
-  }
-  return target;
-}
-
+// --- Prompt assembly + parsing + path-safety -------------------------------
+// All shared with the CLI-side generate flow via `./component-spec.ts`. The
+// `parseMultiFileResponse` re-export at the top of this file preserves the
+// historical import path for callers.
 
 // --- Default subprocess runners -------------------------------------------
 //

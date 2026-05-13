@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { isAbsolute, normalize, resolve, sep } from 'node:path';
 import type { NodeRepository } from '../repository/node-repository.ts';
 import type { WorkspaceRepository } from '../repository/workspace-repository.ts';
 import type { SekkeiNode } from '../types.ts';
@@ -77,6 +78,142 @@ export const HARD_CONSTRAINTS = `HARD CONSTRAINTS:
 
 /** Bytes-soft-cap on resolved context bundle text — protects against runaway bundles. */
 export const CONTEXT_BUNDLE_BYTE_CAP = 400_000;
+
+// ---------------------------------------------------------------------------
+// Prompt assembly (shared by server-side solo-generate and CLI client-side
+// generate)
+// ---------------------------------------------------------------------------
+
+/**
+ * Compose the system prompt sent to Claude for a component generation.
+ * Concatenates `prompt_template`, the resolved context bundle text, the
+ * outputs list, and the hard-constraints suffix. The result is what the
+ * server used to write to `--system-prompt-file`; client-side callers can
+ * either write it to a file too, or pass it via `--system-prompt`.
+ */
+export function buildSystemPrompt(
+  promptBody: PromptBody,
+  contextBundleText: string,
+  outputs: Array<{ path: string; description?: string }>,
+): string {
+  const tpl = (promptBody.prompt_template ?? '').trim();
+  const outputBlock = outputs
+    .map((o) => `  - path: ${o.path}\n    description: ${o.description ?? ''}`)
+    .join('\n');
+  return [tpl, '', 'CONTEXT BUNDLE:', contextBundleText, '', 'OUTPUTS to produce:', outputBlock, '', HARD_CONSTRAINTS].join(
+    '\n',
+  );
+}
+
+/**
+ * Compose the user-turn message sent to Claude. Names the component
+ * being generated and re-lists the expected output paths so the model
+ * can't drift even if the system prompt is long.
+ */
+export function buildUserPrompt(
+  component: { glmId: string; title: string },
+  outputs: Array<{ path: string; description?: string }>,
+): string {
+  return [
+    `Generate the implementation of component '${component.glmId}' (${component.title}).`,
+    `Produce exactly ${outputs.length} file${outputs.length === 1 ? '' : 's'}:`,
+    ...outputs.map((o) => `  - ${o.path}`),
+    '',
+    'Each file must start with `=== FILE: <path> ===` on its own line.',
+  ].join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// Multi-file response parsing
+// ---------------------------------------------------------------------------
+
+const FILE_HEADER_RE = /^===\s*FILE:\s*(.+?)\s*===\s*$/;
+
+export interface ParsedFile {
+  path: string;
+  content: string;
+}
+
+/**
+ * Parse Claude's multi-file response. Claude emits each file as a block
+ * prefixed by `=== FILE: <path> ===\n`. We split on those headers, validate
+ * that every path appears in `expectedPaths`, and ensure every file ends
+ * with a newline.
+ *
+ * Throws `ComponentSpecError(422)` when:
+ *   - no headers were emitted (model produced prose),
+ *   - an emitted path is not in the expected set.
+ */
+export function parseMultiFileResponse(stdout: string, expectedPaths: string[]): ParsedFile[] {
+  const lines = stdout.split(/\r?\n/);
+  const files: ParsedFile[] = [];
+  let current: { path: string; lines: string[] } | null = null;
+
+  for (const line of lines) {
+    const m = line.match(FILE_HEADER_RE);
+    if (m) {
+      if (current) files.push({ path: current.path, content: current.lines.join('\n') });
+      current = { path: (m[1] ?? '').trim(), lines: [] };
+      continue;
+    }
+    if (current) current.lines.push(line);
+  }
+  if (current) files.push({ path: current.path, content: current.lines.join('\n') });
+
+  if (files.length === 0) {
+    throw new ComponentSpecError(
+      'Claude response contained no `=== FILE: <path> ===` markers. ' +
+        'Did the model emit prose instead of the multi-file format?',
+      422,
+    );
+  }
+
+  const expectedSet = new Set(expectedPaths.map(normalize));
+  for (const f of files) {
+    const normalized = normalize(f.path);
+    if (!expectedSet.has(normalized)) {
+      throw new ComponentSpecError(
+        `Claude emitted unexpected file path '${f.path}'. ` +
+          `Expected one of: ${[...expectedSet].join(', ')}`,
+        422,
+      );
+    }
+  }
+
+  return files.map((f) => ({
+    path: f.path,
+    content: f.content.endsWith('\n') ? f.content : `${f.content}\n`,
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Path-safety helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve a Claude-emitted file path against the workspace's `source_dir`,
+ * rejecting absolute paths, parent-traversal segments, and any resolved
+ * target outside the base. Used by both server-side and CLI-side
+ * generation flows to write files safely.
+ */
+export function resolveSafePath(baseDir: string, candidate: string): string {
+  if (isAbsolute(candidate)) {
+    throw new ComponentSpecError(`output path '${candidate}' must be relative`, 422);
+  }
+  if (candidate.includes('..')) {
+    throw new ComponentSpecError(`output path '${candidate}' must not contain '..'`, 422);
+  }
+  const baseAbs = resolve(baseDir);
+  const target = resolve(baseAbs, candidate);
+  if (target !== baseAbs && !target.startsWith(baseAbs + sep)) {
+    throw new ComponentSpecError(`output path '${candidate}' escapes source_dir`, 422);
+  }
+  return target;
+}
+
+// ---------------------------------------------------------------------------
+// Aggregate file digest
+// ---------------------------------------------------------------------------
 
 /**
  * Compute the rolling SHA-256 of a sequence of per-file content hashes —
