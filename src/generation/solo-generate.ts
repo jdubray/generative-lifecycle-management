@@ -8,6 +8,12 @@ import type { ProvenanceRepository } from '../repository/provenance-repository.t
 import type { AuditRepository } from '../repository/audit-repository.ts';
 import type { WorkspaceRepository } from '../repository/workspace-repository.ts';
 import type { ProvenanceEvent, SekkeiNode } from '../types.ts';
+import {
+  buildContextBundle,
+  HARD_CONSTRAINTS,
+  type AcceptanceBody,
+  type PromptBody,
+} from './component-spec.ts';
 
 /**
  * Solo-mode code generation (docs/solo-mode-spec.md UC-02).
@@ -100,7 +106,6 @@ export interface SoloGenerateDeps {
 
 const DEFAULT_MODEL = 'claude-sonnet-4-6';
 const FILE_HEADER_RE = /^===\s*FILE:\s*(.+?)\s*===\s*$/;
-const CONTEXT_BUNDLE_BYTE_CAP = 400_000; // ~100K tokens at 4 bytes/token
 
 export async function runSoloGenerate(
   deps: SoloGenerateDeps,
@@ -319,25 +324,10 @@ export async function runSoloGenerate(
 }
 
 // --- Prompt assembly -------------------------------------------------------
-
-interface PromptBody {
-  context_bundle?: string[];
-  outputs?: Array<{ path: string; description?: string }>;
-  prompt_template?: string;
-  verifier?: { command?: string; expect?: string };
-}
-
-interface AcceptanceBody {
-  verifier?: { command?: string; expect?: string };
-}
-
-const HARD_CONSTRAINTS = `HARD CONSTRAINTS:
-- Output ONLY file content. No prose explanation, no markdown fences.
-- Begin every file with a header line: \`=== FILE: <path-from-outputs> ===\`
-- Emit the files in the order listed in OUTPUTS below.
-- Do NOT emit files not listed in OUTPUTS.
-- Do NOT use absolute paths or '..' segments in file headers.
-- After the last file, stop. Do not append commentary.`;
+// Types and shared helpers live in `./component-spec.ts` so the MCP composite
+// endpoint and this server-side flow stay in lock-step. `buildSystemPrompt`
+// and `buildUserPrompt` below remain here — they're specific to the
+// claude-CLI invocation path and disappear with this file in Phase F.
 
 function buildSystemPrompt(
   promptBody: PromptBody,
@@ -372,52 +362,6 @@ function buildUserPrompt(
     '',
     'Each file must start with `=== FILE: <path> ===` on its own line.',
   ].join('\n');
-}
-
-// --- Context bundle resolution --------------------------------------------
-
-interface ContextBundle {
-  text: string;
-  bindingHash: string;
-}
-
-function buildContextBundle(
-  nodes: NodeRepository,
-  workspaceId: string,
-  refs: string[],
-): ContextBundle {
-  const blocks: string[] = [];
-  const digests: string[] = [];
-  let bytesUsed = 0;
-
-  for (const ref of refs) {
-    if (ref.startsWith('pkg:') || ref.startsWith('dep:') || ref.startsWith('svc:') || ref.startsWith('hw:')) {
-      // External package refs are not resolvable from the sekkei DB. Skip
-      // silently — the prompt_template can mention them by name if needed.
-      continue;
-    }
-    const found = nodes.findByGlmId(workspaceId, ref);
-    if (!found) {
-      blocks.push(`# ref '${ref}' not found in workspace; skipping`);
-      continue;
-    }
-    const body = JSON.stringify(found.node.body, null, 2);
-    const block = `# ${ref}\n${body}\n`;
-    const blockBytes = Buffer.byteLength(block, 'utf8');
-    if (bytesUsed + blockBytes > CONTEXT_BUNDLE_BYTE_CAP) {
-      blocks.push(`# context bundle truncated at ${CONTEXT_BUNDLE_BYTE_CAP} bytes; omitting remaining refs`);
-      break;
-    }
-    bytesUsed += blockBytes;
-    blocks.push(block);
-    digests.push(found.node.contentHash);
-  }
-
-  const bindingHash = digests.length === 0
-    ? 'sha256:0000000000000000000000000000000000000000000000000000000000000000'
-    : `sha256:${createHash('sha256').update(digests.join('\n')).digest('hex')}`;
-
-  return { text: blocks.join('\n'), bindingHash };
 }
 
 // --- Multi-file response parser -------------------------------------------
