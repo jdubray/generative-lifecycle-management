@@ -182,9 +182,13 @@ function validateInteraction(b: Record<string, unknown>): ValidationResult {
  * implementation, schema → data_shapes, business_rule → rules[], acceptance →
  * deliverables[] + verifier, prompt → context_bundle + outputs + prompt_template +
  * verifier). Per-kind subfield requirements are enforced by gate 6 (spec quality),
- * not here. This function only enforces:
- *   - spec_kind is present and non-empty
- *   - well-known optional fields, when present, have the expected types
+ * not here. This function only enforces type-correctness of well-known optional
+ * fields when they are present.
+ *
+ * `spec_kind` lives on the node envelope (sibling of `body`, persisted as the
+ * `nodes.spec_kind` column) — NOT in the body. The envelope is enforced by
+ * gate 1's existing check `node.specKind` and by the DB CHECK constraint, so
+ * we do not re-check it here.
  *
  * Both `verifier: "bun test"` (string) and `verifier: { command, expect }`
  * (object) are accepted. Both `outputs: ["src/foo.ts"]` and
@@ -192,8 +196,8 @@ function validateInteraction(b: Record<string, unknown>): ValidationResult {
  */
 function validateSpec(b: Record<string, unknown>): ValidationResult {
   const issues: string[] = [];
-  if (typeof b.spec_kind !== 'string' || b.spec_kind.length === 0) {
-    issues.push('spec.spec_kind must be a non-empty string');
+  if (b.spec_kind !== undefined && (typeof b.spec_kind !== 'string' || b.spec_kind.length === 0)) {
+    issues.push('spec.body.spec_kind (when present, duplicating the envelope) must be a non-empty string');
   }
   if (b.content !== undefined && typeof b.content !== 'string') {
     issues.push('spec.content (when present) must be a string');

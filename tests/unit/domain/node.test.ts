@@ -113,10 +113,17 @@ describe('validateBody — spec (legacy `content` form)', () => {
       validateBody('spec', { spec_kind: 'code_recipe', content: 'do the thing' }).ok,
     ).toBe(true);
   });
-  test('rejects when spec_kind is missing', () => {
-    const r = validateBody('spec', { content: 'x' });
+  test('content only (no spec_kind in body) is accepted; spec_kind lives on the envelope', () => {
+    // Per docs/sekkei-authoring.md §6, spec_kind is an envelope field — gate 1
+    // checks it via node.specKind. The body validator no longer requires it.
+    expect(validateBody('spec', { content: 'x' }).ok).toBe(true);
+  });
+  test('spec_kind in body is accepted (some authors duplicate it for clarity)', () => {
+    expect(validateBody('spec', { spec_kind: 'functional', content: 'x' }).ok).toBe(true);
+  });
+  test('spec_kind in body of wrong shape is rejected', () => {
+    const r = validateBody('spec', { spec_kind: 42 as unknown });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.issues[0]).toContain('spec_kind');
   });
 });
 
@@ -195,8 +202,8 @@ describe('validateBody — spec (rich shapes from docs/sekkei-authoring.md §6)'
     expect(validateBody('spec', body).ok).toBe(true);
   });
 
-  test('a bare spec_kind passes envelope (gate 6 enforces per-kind requirements)', () => {
-    expect(validateBody('spec', { spec_kind: 'functional' }).ok).toBe(true);
+  test('a bare body (empty object) passes envelope; gate 1 envelope check + gate 6 enforce the rest', () => {
+    expect(validateBody('spec', {}).ok).toBe(true);
   });
 });
 
