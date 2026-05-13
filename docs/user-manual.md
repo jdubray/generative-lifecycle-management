@@ -626,7 +626,7 @@ Exit 0 on overall pass, 1 on any gate failure. `--verbose` shows the full issue 
 
 ### 8.7 Generating code (UC-02)
 
-> **Platform note.** `glm generate` runs on macOS, Linux, and Windows. Windows generations are notably slower (claude on Sonnet 4.6 takes 8–12 minutes for a typical 4-file component) and the CLI produces no progress output until claude exits — it captures stdout in one shot at the end. Watch from another terminal with `Get-Process claude` if you want to confirm it's alive. If claude emits prose instead of the required `=== FILE: <path> ===` format, the raw response is preserved in a temp directory referenced in the error so you can inspect what the model actually said.
+> **Platform note.** `glm generate` runs on macOS, Linux, WSL, and native Windows. Windows / WSL generations are notably slower than POSIX — claude on Sonnet 4.6 takes anywhere from 8 to 21+ minutes for a typical 4-file component (a real petshop `cart_manager` regen clocked 1,290,022 ms = ~21.5 min). The CLI produces no progress output until claude exits; it captures stdout in one shot at the end. Watch from another terminal with `Get-Process claude` (PowerShell) or `ps -eo pid,pcpu,etime,cmd | grep claude` (bash/zsh) if you want to confirm it's alive. If claude emits prose instead of the required `=== FILE: <path> ===` format, the raw response is preserved in a temp directory referenced in the error so you can inspect what the model actually said.
 
 ```bash
 glm generate \

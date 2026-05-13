@@ -1,8 +1,8 @@
 # Solo Mode — Functional and Technical Specification
 
 **Status:** Draft  
-**Version:** 0.1  
-**Date:** 2026-05-12
+**Version:** 0.2  
+**Date:** 2026-05-13
 
 ---
 
@@ -28,6 +28,13 @@ This specification covers:
 - The **protocol** between Claude CLI and the GLM server (HTTP REST over localhost, stream-JSON prompting, MCP tool registration).
 
 Out of scope for v0.1: team collaboration, remote servers, Git-backed workspace sync, sekkei.lock distribution.
+
+### 1.3 Revision history
+
+| Version | Date | Change |
+|--------:|------|--------|
+| 0.1 | 2026-05-12 | Initial draft. Server-side Claude CLI spawning for all four LLM flows. |
+| 0.2 | 2026-05-13 | **MCP-first generation.** UC-02 inverted: the server no longer spawns Claude. Generation is driven client-side, either by the `glm` CLI (spawns `claude --print` in the user's shell) or by Claude Code itself via the `/glm-generate` slash command and the `glm-mcp` stdio MCP server. Server gained three small endpoints (composite spec, acceptance-verify, record-generation). No `ANTHROPIC_API_KEY` is required on server or client — Claude Code's existing OAuth is the credential. Rationale: [`docs/adr/0006-mcp-first-generation.md`](adr/0006-mcp-first-generation.md). Vibe and refine flows had already moved to client-side CLI spawning before this revision; this version's text reflects that. |
 
 ---
 
@@ -59,7 +66,7 @@ Out of scope for v0.1: team collaboration, remote servers, Git-backed workspace 
 1. Developer runs `glm vibe --workspace <id>` (or from Puffin's Solo panel).
 2. GLM presents an interactive prompt: *"Describe your system."*
 3. Developer enters a free-form description (or points to an existing codebase directory).
-4. GLM constructs a sekkei authoring prompt (see §4.1) and spawns Claude CLI.
+4. The CLI fetches the authoring system prompt from the GLM server, constructs the sekkei authoring prompt (see §4.1), and spawns `claude --print` in the user's shell. (Server-side spawning was removed in v0.2 — see ADR-0006.)
 5. Claude CLI streams back sekkei YAML conforming to `specification/sekkei.schema.json`.
 6. GLM validates the YAML against the schema and runs verifier gates 1–4 (envelope, hierarchy, role consistency, brief coverage).
 7. If valid: GLM imports the sekkei into the workspace via `POST /workspaces/:id/import-sekkei`.
@@ -71,21 +78,32 @@ Out of scope for v0.1: team collaboration, remote servers, Git-backed workspace 
 
 #### UC-02 Generate Code (consume a sekkei)
 
-**Actor:** Developer  
-**Precondition:** Sekkei is imported and passes gates 5–6 (spec coverage + spec quality).  
-**Trigger:** Developer runs `glm generate --component <id>` or clicks Generate in Puffin.
+**Actor:** Developer
+**Precondition:** Sekkei is imported and passes gates 5–6 (spec coverage + spec quality). The workspace's `source_dir` is set (via `glm init --source-dir`, `glm generate --source-dir`, or a `PATCH /workspaces/:id` body).
+**Trigger:** Developer runs `glm generate --component <id>` from a terminal, **or** types `/glm-generate <id>` inside Claude Code.
 
-**Flow:**
+Both entry points drive the same backend endpoints. The LLM call always happens client-side — the GLM server never spawns Claude. See [`docs/adr/0006-mcp-first-generation.md`](adr/0006-mcp-first-generation.md) for the architectural rationale.
 
-1. GLM resolves the component's `spec.prompt` node.
-2. GLM builds the context bundle (fetches all referenced node bodies from local DB).
-3. GLM constructs a generation prompt (see §4.2) and spawns Claude CLI with `--print`.
-4. Claude CLI produces the `outputs` files in the project directory.
-5. GLM runs the `verifier.command` from `spec.acceptance`.
-6. If verifier passes: GLM records a `provenance_event` linking artifacts to sekkei + content hash + generator identity. Optionally writes a `git notes` ref on the corresponding commit.
-7. GLM reports: files written, verifier result, provenance event ID.
+**Flow (CLI path — `glm generate`):**
 
-**Outcome:** Output files exist on disk; verifier is green; provenance is recorded.
+1. CLI optionally `PATCH`es the workspace with `--source-dir` when one is provided on the command line.
+2. CLI calls `GET /workspaces/:id/components/:glm_id/spec`. The server returns a composite payload: `{ component, prompt, acceptance, context_bundle, outputs[], hard_constraints, source_dir }` with the context bundle already resolved against the local DB.
+3. CLI builds the system prompt + user prompt from the composite payload (the same prompt structure §4.2 describes; constructed in `integrations/cli/src/lib/generate-spec.ts`) and spawns `claude --print --model <model> --system-prompt-file <tmp>` in the user's interactive shell.
+4. CLI parses the multi-file response (`=== FILE: <path> ===` delimiters), validates every path against `source_dir` (no absolute paths, no `..` segments, parent dirs created on demand), and writes the files.
+5. CLI calls `POST /workspaces/:id/acceptance-verify` with `{ component_id }`. The server runs `spec.acceptance.body.verifier.command` with `cwd = source_dir` and returns `{ exit_code, stdout, stderr, duration_ms }`.
+6. On `exit_code === 0`: CLI calls `POST /workspaces/:id/record-generation` with `{ component_id, files: [{ path, sha256, bytes }], verifier_exit_code, duration_ms }`. The server inserts a `provenance_events` row + `audit` entry (`event_type = "mcp.generate"`) and returns the provenance id.
+
+**Flow (Claude Code path — `/glm-generate`):**
+
+Claude Code uses the same backend endpoints, but orchestrates the steps itself through the `glm-mcp` stdio MCP server. The user-facing entry is the slash-command template at `integrations/mcp/commands/glm-generate.md`.
+
+1. User types `/glm-generate <component_id>`. The slash command expands into the orchestration prompt.
+2. Claude calls `glm_get_component_spec` — thin MCP wrapper around the same `GET /workspaces/:id/components/:glm_id/spec` endpoint.
+3. Claude uses its built-in `Write` tool to produce each file under `source_dir`. No multi-file delimiter parsing — Claude's own tool loop writes the files directly.
+4. Claude calls `glm_run_acceptance_verifier` → `POST /workspaces/:id/acceptance-verify`. If the verifier fails, Claude examines the output, edits the relevant files, and re-runs the verifier (zero or more iterations).
+5. On verifier `exit_code === 0`, Claude calls `glm_record_generation` → `POST /workspaces/:id/record-generation` with file hashes + verifier exit.
+
+**Outcome:** Output files exist on disk under `source_dir`; the verifier returned 0; `provenance_events` and `audit` rows are written; the developer sees the provenance id (CLI) or Claude's summary (Claude Code).
 
 ---
 
@@ -125,7 +143,7 @@ Out of scope for v0.1: team collaboration, remote servers, Git-backed workspace 
 
 1. GLM fetches the target node body + its ancestors (system → capability → component).
 2. Developer provides a refinement instruction in natural language.
-3. GLM constructs a refinement prompt and spawns Claude CLI.
+3. The CLI fetches the node body + ancestors over HTTP, constructs the refinement prompt, and spawns `claude --print` in the user's shell. (Server-side spawning was removed in v0.2 — see ADR-0006.)
 4. Claude CLI returns a JSON-Patch RFC-6902 delta over the node's `body`.
 5. GLM applies the delta, updates `revision.iteration`, recomputes `content_hash`.
 6. GLM re-runs relevant verifier gates and reports.
@@ -218,7 +236,12 @@ Use multi-document YAML (--- separators) to emit all nodes in one response.
 
 ### 4.2 Generation Prompt (UC-02)
 
-Claude CLI is invoked in `--print` mode (one-shot, no tools). Generation is strictly file-producing; Claude must not invoke `hdsl_*` tools or explore the codebase.
+The generation prompt is **built client-side**, not by the server. Two construction sites coexist:
+
+- The `glm` CLI builds it in TypeScript (`integrations/cli/src/lib/generate-spec.ts`) from the composite spec returned by `GET /workspaces/:id/components/:glm_id/spec`, then invokes `claude --print` in `--print` mode (one-shot, no tools) with a `--system-prompt-file`.
+- The `/glm-generate` slash command in Claude Code (`integrations/mcp/commands/glm-generate.md`) expands into an orchestration prompt that fetches the same composite spec via `glm_get_component_spec` and uses Claude's built-in `Write` tool to produce files — no subprocess, no `--print`.
+
+Both sites use the structure below. Generation is strictly file-producing; Claude must not invoke `hdsl_*` tools or explore the codebase.
 
 **Prompt structure:**
 
@@ -326,10 +349,10 @@ claude --input-format stream-json --output-format stream-json \
 
 #### 5.1.3 Process Lifecycle
 
-- The GLM server spawns and owns Claude CLI subprocesses.
-- On Windows: use `taskkill /pid <PID> /T /F` to terminate (shell:true kills only the shell wrapper).
-- On POSIX: `SIGTERM` on the process group.
-- Subprocess stdout is buffered to a temp file; streaming mode pipes directly to the HTTP response via SSE.
+- Claude CLI subprocesses are spawned and owned **by the client** (the `glm` CLI for UC-01, UC-02, UC-04, UC-05; Puffin or the Vibe panel for the interactive mode). The GLM server no longer spawns Claude for any use case in v0.2 — see ADR-0006.
+- The CLI captures stdout in one shot at process exit. On Windows there is no progress output during the run; a typical 4-file component takes 8–21+ minutes on Sonnet 4.6.
+- On parse failure (claude emits prose instead of `=== FILE: <path> ===`), the CLI preserves the raw response in a temp directory printed in the error message so the developer can inspect what the model actually produced.
+- For the Claude Code (`/glm-generate`) path there is no subprocess at all — Claude's own tool loop drives generation through `glm-mcp` and its built-in `Write` tool.
 
 ---
 
@@ -363,27 +386,76 @@ data: {"type":"done","sekkei_root_id":"acme:web.shop"}
 
 ---
 
-#### `POST /workspaces/:id/generate`
+#### `GET /workspaces/:id/components/:glm_id/spec`
 
-Generate code for one Component.
+Composite endpoint returning everything a client needs to drive a generation locally. Replaces the v0.1 server-driven `POST /workspaces/:id/generate`.
+
+**Response:**
+```json
+{
+  "component": { "id": "acme:web.shop.catalog.product_repository", "title": "…" },
+  "prompt": { "template": "…", "context_bundle": ["acme:web.shop.catalog.product_repository.spec.schema", "..."], "outputs": [{ "path": "src/repository.ts", "description": "…" }] },
+  "acceptance": { "deliverables": ["…"], "verifier": { "command": "bun test src/repository.test.ts" } },
+  "context_bundle_resolved": "…canonical YAML, --- separated, ≤ 400 KB…",
+  "hard_constraints": "…",
+  "source_dir": "/abs/path/to/code"
+}
+```
+
+The server resolves `context_bundle[]` against the local DB (§5.4) and inlines each referenced node's canonical YAML body. Caps the bundle at 400 KB; if exceeded, omits `spec.schema` and `spec.business_rule` and sets a warning header.
+
+---
+
+#### `POST /workspaces/:id/acceptance-verify`
+
+Runs an acceptance-spec verifier in a workspace's `source_dir`. The server reuses the existing `defaultVerifierRunner` (`src/generation/acceptance-runner.ts`) which spawns `cmd /c` (Windows) or `sh -c` (POSIX).
+
+**Request:**
+```json
+{ "component_id": "acme:web.shop.catalog.product_repository" }
+```
+
+**Response:**
+```json
+{
+  "exit_code": 0,
+  "stdout": "…",
+  "stderr": "",
+  "duration_ms": 42010,
+  "command": "bun test src/repository.test.ts"
+}
+```
+
+---
+
+#### `POST /workspaces/:id/record-generation`
+
+Records a successful (or failed) generation. Idempotent on `(component_id, aggregate_digest)` — re-recording the same artifact set returns the existing provenance id.
 
 **Request:**
 ```json
 {
   "component_id": "acme:web.shop.catalog.product_repository",
-  "dry_run": false
+  "files": [
+    { "path": "src/repository.ts", "sha256": "…", "bytes": 2341 },
+    { "path": "test/repository.test.ts", "sha256": "…", "bytes": 567 }
+  ],
+  "verifier_exit_code": 0,
+  "duration_ms": 1290022,
+  "model": "claude-sonnet-4-6"
 }
 ```
 
-**Response (SSE stream):**
+**Response:**
+```json
+{
+  "provenance_id": "5e97f6d5-22f1-4f18-9e32-9d78bddbd08b",
+  "aggregate_digest": "sha256:…",
+  "audit_event_id": "…"
+}
 ```
-data: {"type":"progress","message":"Building context bundle..."}
-data: {"type":"progress","message":"Invoking Claude CLI..."}
-data: {"type":"file_written","path":"src/repository.ts","bytes":2341}
-data: {"type":"verifier_output","stdout":"...","exit_code":0}
-data: {"type":"provenance","event_id":"01HZ...","content_hash":"sha256:..."}
-data: {"type":"done","success":true}
-```
+
+The server computes the aggregate digest from the per-file `sha256` values + the component's `content_hash` so a regeneration with an unchanged spec and unchanged outputs is deterministically identifiable.
 
 ---
 
@@ -535,7 +607,7 @@ Create parent directories as needed. Do NOT create files outside this directory.
 
 2. **Streaming vs. one-shot for vibe design**: Large sekkeis (50+ nodes) may time out under `--print`. Should the vibe design flow use `--input-format stream-json` with a long-running session and emit nodes incrementally?
 
-3. **Local vs. API key for Solo mode**: Solo mode currently requires an Anthropic API key. A future path would route through Claude CLI's own credential store (the `claude` CLI handles auth). Should GLM delegate auth entirely to the `claude` binary rather than managing `ANTHROPIC_API_KEY` itself?
+3. ~~**Local vs. API key for Solo mode**: Solo mode currently requires an Anthropic API key.~~ **Resolved in v0.2.** Solo mode delegates LLM auth entirely to Claude Code's own OAuth/keychain. The GLM server never holds an `ANTHROPIC_API_KEY`. See [ADR-0006](adr/0006-mcp-first-generation.md). A future Phase J could add an opt-in server-side `ANTHROPIC_API_KEY` mode for headless CI use, but it is not part of v0.2.
 
 4. **Sekkei.lock in Solo mode**: Should `glm generate` automatically update `sekkei.lock` with the new `content_hash` of generated nodes, or leave lock management to the developer?
 

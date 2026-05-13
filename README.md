@@ -287,11 +287,16 @@ well-organized design specs, trust the code generation, and use GLM's
 lifecycle tools (change management, variant resolution, provenance) to keep the
 design authoritative as the system evolves.
 
-> **Note:** vibe designing currently requires a **Claude API key**, as GLM is
-> primarily a team tool that routes generation through the server-side pipeline.
-> Solo CLI integration and [Puffin](https://github.com/kizo-core/puffin) support
-> are in active development to make this path fully self-contained for
-> individuals.
+> **Solo mode (no API key required).** The `glm` CLI in `integrations/cli/` and
+> the `glm-mcp` MCP server in `integrations/mcp/` let an individual developer
+> drive vibe design, generation, and refinement entirely through their existing
+> Claude Code session — no `ANTHROPIC_API_KEY` on the server or the client. From
+> a terminal: `glm vibe`, `glm generate`, `glm refine`. From inside Claude Code:
+> the `/glm-*` slash commands. The server stays a pure data + verifier + provenance
+> layer. Rationale and trade-offs:
+> [`docs/adr/0006-mcp-first-generation.md`](docs/adr/0006-mcp-first-generation.md).
+> [Puffin](https://github.com/kizo-core/puffin) integration surfaces the same
+> flow inside its Solo panel.
 
 ---
 
