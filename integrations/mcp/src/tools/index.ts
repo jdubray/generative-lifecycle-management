@@ -5,6 +5,11 @@ import { runStatus, StatusInputSchema } from './status.ts';
 import { ListComponentsInputSchema, runListComponents } from './list-components.ts';
 import { GetNodeInputSchema, runGetNode } from './get-node.ts';
 import { GetComponentSpecInputSchema, runGetComponentSpec } from './get-component-spec.ts';
+import { runVerify, VerifyInputSchema } from './verify.ts';
+import {
+  RunAcceptanceVerifierInputSchema,
+  runRunAcceptanceVerifier,
+} from './run-acceptance-verifier.ts';
 
 /**
  * Register every GLM tool against the provided MCP server instance. Kept
@@ -63,5 +68,32 @@ export function registerTools(
       inputSchema: GetComponentSpecInputSchema,
     },
     async (args) => runGetComponentSpec(args, deps),
+  );
+
+  server.registerTool(
+    'glm_verify',
+    {
+      title: 'Run the 7-gate sekkei verifier',
+      description:
+        'Run the workspace verifier (envelope, stratum hierarchy, role consistency, ' +
+        'closure completeness, brief coverage, spec coverage, spec quality). ' +
+        'Returns overall pass/fail plus per-gate detail with issues. Pure code, no LLM.',
+      inputSchema: VerifyInputSchema,
+    },
+    async (args) => runVerify(args, deps),
+  );
+
+  server.registerTool(
+    'glm_run_acceptance_verifier',
+    {
+      title: 'Run a component acceptance verifier',
+      description:
+        "Execute the component's sekkei-authored verifier.command (from " +
+        'spec.acceptance) via the platform shell, with cwd = workspace source_dir. ' +
+        'Used after code generation to confirm the produced files pass the ' +
+        "component's tests. Returns exit code + stdout/stderr (tail-truncated).",
+      inputSchema: RunAcceptanceVerifierInputSchema,
+    },
+    async (args) => runRunAcceptanceVerifier(args, deps),
   );
 }

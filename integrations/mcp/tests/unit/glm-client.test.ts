@@ -128,6 +128,72 @@ describe('GlmClient.getNode', () => {
   });
 });
 
+describe('GlmClient.runVerifier', () => {
+  test('POSTs empty body to /verify and unwraps {run}', async () => {
+    let seenUrl = '';
+    let seenMethod = '';
+    let seenBody = '';
+    const client = new GlmClient({
+      baseUrl: 'http://localhost:3300',
+      token: 'tok',
+      fetch: fakeFetch((url, init) => {
+        seenUrl = url;
+        seenMethod = init.method ?? '';
+        seenBody = (init.body as string) ?? '';
+        return new Response(
+          JSON.stringify({
+            run: {
+              id: 'r-1',
+              workspaceId: 'ws-1',
+              ts: '2026-05-13T15:00:00Z',
+              overallPass: true,
+              gateResults: { gates: [] },
+            },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }),
+    });
+    const out = await client.runVerifier('ws-1');
+    expect(seenMethod).toBe('POST');
+    expect(seenUrl).toBe('http://localhost:3300/api/v1/workspaces/ws-1/verify');
+    expect(seenBody).toBe('{}');
+    expect(out.id).toBe('r-1');
+  });
+});
+
+describe('GlmClient.runAcceptanceVerify', () => {
+  test('POSTs {componentId} body and unwraps {result}', async () => {
+    let seenUrl = '';
+    let seenBody = '';
+    const client = new GlmClient({
+      baseUrl: 'http://localhost:3300',
+      token: 'tok',
+      fetch: fakeFetch((url, init) => {
+        seenUrl = url;
+        seenBody = (init.body as string) ?? '';
+        return new Response(
+          JSON.stringify({
+            result: {
+              command: 'bun test',
+              cwd: '/work',
+              exitCode: 0,
+              stdout: '',
+              stderr: '',
+              durationMs: 5,
+            },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }),
+    });
+    const out = await client.runAcceptanceVerify('ws-1', 'acme:c');
+    expect(seenUrl).toBe('http://localhost:3300/api/v1/workspaces/ws-1/acceptance-verify');
+    expect(JSON.parse(seenBody)).toEqual({ componentId: 'acme:c' });
+    expect(out.exitCode).toBe(0);
+  });
+});
+
 describe('GlmClient.getComponentSpec', () => {
   test('unwraps the {spec} envelope', async () => {
     const payload = {

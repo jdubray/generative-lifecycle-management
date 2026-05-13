@@ -65,6 +65,29 @@ export interface ComponentSpecPayload {
   verifierCommand: string;
 }
 
+export interface VerifierGate {
+  name: string;
+  passed: boolean;
+  issues: string[];
+}
+
+export interface VerifierRun {
+  id: string;
+  workspaceId: string;
+  ts: string;
+  overallPass: boolean;
+  gateResults: { gates: VerifierGate[] };
+}
+
+export interface AcceptanceVerifyResult {
+  command: string;
+  cwd: string;
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  durationMs: number;
+}
+
 export class GlmClient {
   public readonly baseUrl: string;
   private readonly token: string | undefined;
@@ -125,23 +148,68 @@ export class GlmClient {
     return spec;
   }
 
+  /**
+   * POST /api/v1/workspaces/:id/verify
+   *
+   * Run the 7-gate sekkei verifier and return the persisted VerificationRun.
+   * Server-side operation; the gates are pure-code, no LLM.
+   */
+  async runVerifier(workspaceId: string): Promise<VerifierRun> {
+    const { run } = await this.post<{ run: VerifierRun }>(
+      `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/verify`,
+      {},
+    );
+    return run;
+  }
+
+  /**
+   * POST /api/v1/workspaces/:id/acceptance-verify
+   *
+   * Run a component's authoritative `spec.acceptance.verifier.command`
+   * via the platform shell with cwd = workspace.source_dir. The command
+   * comes from the sekkei (not from the caller) so it can't be injected.
+   */
+  async runAcceptanceVerify(
+    workspaceId: string,
+    componentGlmId: string,
+  ): Promise<AcceptanceVerifyResult> {
+    const { result } = await this.post<{ result: AcceptanceVerifyResult }>(
+      `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/acceptance-verify`,
+      { componentId: componentGlmId },
+    );
+    return result;
+  }
+
   // ----------------------------------------------------------------- core
 
   private async get<T>(path: string): Promise<T> {
+    return this.request<T>('GET', path);
+  }
+
+  private async post<T>(path: string, body: unknown): Promise<T> {
+    return this.request<T>('POST', path, body);
+  }
+
+  private async request<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const headers: Record<string, string> = { Accept: 'application/json' };
     if (this.token) headers.Authorization = `Bearer ${this.token}`;
+    let bodyInit: BodyInit | undefined;
+    if (body !== undefined) {
+      headers['Content-Type'] = 'application/json';
+      bodyInit = JSON.stringify(body);
+    }
 
     let response: Response;
     try {
-      response = await this.fetchImpl(url, { method: 'GET', headers });
+      response = await this.fetchImpl(url, { method, headers, body: bodyInit });
     } catch (err) {
       throw new ServerUnreachableError(this.baseUrl, err);
     }
 
     if (!response.ok) {
-      const body = await safeReadText(response);
-      throw new HttpError(url, response.status, body);
+      const text = await safeReadText(response);
+      throw new HttpError(url, response.status, text);
     }
     return (await response.json()) as T;
   }
