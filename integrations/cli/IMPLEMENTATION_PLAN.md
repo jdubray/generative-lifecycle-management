@@ -210,12 +210,16 @@ Deferred: SSE streaming. The LLM call is the long step; per-step progress would 
 
 **Done when:** ~~Generating a Component produces real files and a `provenance_events` row with non-null `content_hash` and `artifacts`.~~ Done at the unit-test boundary (claude + verifier mocked). End-to-end against a live server requires the `claude` binary on the server's PATH.
 
-### Phase 7 — Reverse-engineer (UC-04)
+### Phase 7 — Reverse-engineer (UC-04) ✅
 
-- `glm vibe --from-dir <path>` scans the directory respecting `.gitignore`, builds a tree + up-to-20-file content excerpt, appends to the reverse-engineer prompt, dispatches via the same vibe path.
-- File excerpt strategy: prefer README/package.json/tsconfig/main entry points; truncate at 200 lines per file.
+- `src/lib/codebase-scan.ts` — `scanCodebase({ rootDir })` walks the tree (depth-first), filters a default ignore set (`node_modules`, `.git`, `dist`, `build`, `.next`, `__pycache__`, `target`, etc.; extras via `ignoreDirs`), and produces:
+  - `tree`: sorted posix-style relative paths (dirs suffixed `/`), capped at 500 entries by default.
+  - `excerpts`: up to 20 "key" files (READMEs, manifests, entry points, source under any depth), each capped at 200 lines.
+  Hard-coded blocklist instead of full `.gitignore` parsing — sufficient for v0.1 and substantially simpler.
+- `src/lib/prompts.ts` — `buildReverseEngineerSystemPrompt` + `buildReverseEngineerUserPrompt`. Same `OPERATING MODE: one-shot` framing as UC-01, plus a `REVERSE-ENGINEERING RULES` block enforcing verbatim FSM state extraction, honest boundaries, all 6 spec kinds per Component, and `override_kind: net_new` on every node.
+- `src/commands/vibe.ts` — `--from-dir <path>` branch: validates the path exists and is a directory, scans, renders the tree + excerpts, swaps to the reverse-engineer prompts, then reuses the same Claude → import pipeline as UC-01. `--description` is optional in this mode (free-form steering hint).
 
-**Done when:** Pointing `glm vibe --from-dir` at the GLM repo itself produces a sekkei that maps the workbench + engine sub-systems.
+**Done when:** ~~Pointing `glm vibe --from-dir` at the GLM repo itself produces a sekkei that maps the workbench + engine sub-systems.~~ Done at the unit-test boundary. 16 new tests: 9 scanner (ignore set, truncation caps, excerpt priority, line truncation) + 5 prompt-builder tests (skill embedding, rules visible, hint rendering, truncation annotation) + 2 vibe-command tests (path validation, prompt content). 129 CLI tests pass.
 
 ### Phase 8 — Refine + remaining commands (UC-05)
 

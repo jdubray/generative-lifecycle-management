@@ -6,8 +6,12 @@ USAGE
   glm <command> [options]
 
 COMMANDS
-  vibe [--workspace <id>] [--from-dir <path>] [--description-file <file>]
-                          Author or reverse-engineer a sekkei interactively.
+  vibe --slug <id> --namespace <ns> (--description <text> | --description-file <file>)
+       [--from-dir <path>] [--stack <text>] [--out <file>] [--dry-run] [--json]
+                          Author (UC-01) or reverse-engineer (UC-04 via --from-dir)
+                          a sekkei. With --from-dir, scans the codebase (respecting
+                          common ignore patterns) and feeds the tree + top-20 file
+                          excerpts to Claude alongside the authoring skill.
 
   verify [--workspace <id>] [--verbose] [--no-color]
                           Run the 6 verifier gates and print per-gate results.

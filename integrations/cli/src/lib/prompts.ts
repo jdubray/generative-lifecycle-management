@@ -80,3 +80,80 @@ export function stripCodeFences(text: string): string {
   const m = text.match(fenced);
   return m && m[1] !== undefined ? m[1] : text;
 }
+
+// ---------------------------------------------------------------------------
+// UC-04 — reverse-engineer an existing codebase
+// ---------------------------------------------------------------------------
+
+const REVERSE_SCAFFOLD = `You are reverse-engineering an existing codebase into a sekkei.
+Your output MUST be valid YAML conforming to the sekkei specification.
+
+OPERATING MODE: one-shot generation. Treat the user message as a complete
+authoring brief — there is no interactive channel. Do not request
+clarifications, do not ask follow-up questions, do not output any meta-
+commentary. Make reasonable assumptions and proceed. The authoring skill's
+§1 elicitation steps DO NOT APPLY in this mode; infer the answers from the
+codebase listing and file excerpts.
+
+The authoring skill that follows is loaded VERBATIM as your reference. Apply
+sections §10.1 through §10.7 strictly.`;
+
+const REVERSE_RULES = `REVERSE-ENGINEERING RULES:
+- Read FSM states VERBATIM from source (§10.3). Do not invent states.
+- Component boundaries must reflect what the code ACTUALLY OWNS (§10.2).
+- Emit a complete sekkei with all 6 spec kinds per Component.
+- Use override_kind: net_new for every node (this is a first-time authoring).
+- Output ONLY YAML. No prose, no markdown fences.
+- Use multi-document YAML (\`---\` separators) to emit every node in one response.`;
+
+export interface ReverseSystemPromptInput {
+  authoringSkill: string;
+  schemaJson?: string;
+}
+
+export function buildReverseEngineerSystemPrompt(input: ReverseSystemPromptInput): string {
+  const parts: string[] = [REVERSE_SCAFFOLD, '\n\n--- AUTHORING SKILL ---\n', input.authoringSkill];
+  if (input.schemaJson && input.schemaJson.trim().length > 0) {
+    parts.push('\n\n--- SEKKEI JSON SCHEMA ---\n', input.schemaJson);
+  }
+  parts.push('\n\n', REVERSE_RULES, '\n');
+  return parts.join('');
+}
+
+export interface ReverseUserPromptInput {
+  namespace: string;
+  rootDir: string;
+  /** Pre-formatted tree text (one entry per line). */
+  fileTree: string;
+  excerpts: Array<{ path: string; content: string; truncated: boolean; totalLines: number }>;
+  /** Optional free-form hint from the developer. */
+  hint?: string;
+}
+
+export function buildReverseEngineerUserPrompt(input: ReverseUserPromptInput): string {
+  const lines: string[] = [];
+  lines.push(`Reverse-engineer a sekkei for the codebase rooted at ${input.rootDir}.`);
+  lines.push('');
+  lines.push(`Namespace prefix: ${input.namespace}`);
+  if (input.hint && input.hint.trim().length > 0) {
+    lines.push('');
+    lines.push('Author hint:');
+    lines.push(input.hint.trim());
+  }
+  lines.push('');
+  lines.push('CODEBASE STRUCTURE:');
+  lines.push(input.fileTree);
+  lines.push('');
+  lines.push('KEY FILES (excerpts):');
+  for (const ex of input.excerpts) {
+    lines.push('');
+    lines.push(`=== ${ex.path}${ex.truncated ? ` (truncated; first ${ex.content.split(/\r?\n/).length} of ${ex.totalLines} lines)` : ''} ===`);
+    lines.push(ex.content);
+  }
+  lines.push('');
+  lines.push(
+    'Produce a complete sekkei YAML starting with the root System node. ' +
+      'Use multi-document YAML (`---` separators) to emit every node in one response.',
+  );
+  return lines.join('\n');
+}

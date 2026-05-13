@@ -52,7 +52,7 @@ glm --help
 | `glm status` | 2 | ✅ implemented |
 | `glm vibe` | 4 | ✅ implemented |
 | `glm init` | 4.5 | ✅ implemented |
-| `glm vibe --from-dir <path>` | 7 | ⏳ planned |
+| `glm vibe --from-dir <path>` | 7 | ✅ implemented |
 | `glm verify` | 5 | ✅ implemented |
 | `glm generate --component <id>` | 6 | ✅ implemented |
 | `glm refine --node <id>` | 8 | ⏳ planned |

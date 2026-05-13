@@ -210,14 +210,118 @@ describe('glm vibe', () => {
     expect(exit).toBe(70); // 422 maps to internal-software in HttpError
   });
 
-  test('--from-dir → exit 2 (Phase 7)', async () => {
+  test('--from-dir rejects a path that does not exist', async () => {
     const opts = makeOpts();
     const exit = await runVibe(
-      parseCommandLine(['vibe', '--from-dir=./somewhere']),
+      parseCommandLine([
+        'vibe',
+        '--slug=acme-shop',
+        '--namespace=acme:legacy.app',
+        '--from-dir=/nope/this/path/does/not/exist',
+      ]),
       opts,
     );
-    expect(exit).toBe(2);
-    expect((opts.io!.stderr as StringStream).buffer).toContain('Phase 7');
+    expect(exit).toBe(64);
+    expect((opts.io!.stderr as StringStream).buffer).toContain('does not exist');
+  });
+
+  test('--from-dir branch: scans codebase, builds reverse-engineer prompt, imports', async () => {
+    // Scan an existing real directory — the cli's own source — so we don't need
+    // to mock the scanner. The claude runner returns canned YAML.
+    const tmp = mkdtempSync(join(tmpdir(), 'glm-vibe-rev-'));
+    writeFileSync(join(tmp, 'README.md'), '# tiny project', 'utf8');
+    writeFileSync(join(tmp, 'package.json'), '{"name":"tiny"}', 'utf8');
+    try {
+      let capturedUserText = '';
+      const opts = makeOpts({
+        clientFactory: () => fakeClient(),
+        claudeRunner: (claudeOpts) => {
+          capturedUserText = claudeOpts.userText;
+          return Promise.resolve({
+            stdout: SAMPLE_YAML,
+            stderr: '',
+            exitCode: 0,
+            durationMs: 1,
+          });
+        },
+      });
+      const exit = await runVibe(
+        parseCommandLine([
+          'vibe',
+          '--slug=acme-legacy',
+          '--namespace=acme:legacy.app',
+          `--from-dir=${tmp}`,
+        ]),
+        opts,
+      );
+      expect(exit).toBe(0);
+      // Reverse-engineer user prompt should mention the codebase + namespace.
+      expect(capturedUserText).toContain('Reverse-engineer a sekkei');
+      expect(capturedUserText).toContain('Namespace prefix: acme:legacy.app');
+      expect(capturedUserText).toContain(tmp);
+      expect(capturedUserText).toContain('README.md');
+      expect(capturedUserText).toContain('package.json');
+      // Stderr carries the progress messages.
+      const err = (opts.io!.stderr as StringStream).buffer;
+      expect(err).toContain('scanning codebase');
+      expect(err).toContain('key files in the excerpt set');
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('--from-dir does NOT require --description', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'glm-vibe-rev-'));
+    writeFileSync(join(tmp, 'README.md'), '# x', 'utf8');
+    try {
+      const opts = makeOpts({
+        clientFactory: () => fakeClient(),
+        claudeRunner: fakeClaude(SAMPLE_YAML),
+      });
+      const exit = await runVibe(
+        parseCommandLine([
+          'vibe',
+          '--slug=acme-legacy',
+          '--namespace=acme:legacy.app',
+          `--from-dir=${tmp}`,
+        ]),
+        opts,
+      );
+      // Should not exit 64 for missing description.
+      expect(exit).toBe(0);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('--from-dir uses the reverse-engineer system prompt (rules visible)', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'glm-vibe-rev-'));
+    writeFileSync(join(tmp, 'README.md'), '# x', 'utf8');
+    try {
+      let capturedSystemPrompt = '';
+      const opts = makeOpts({
+        clientFactory: () => fakeClient(),
+        claudeRunner: (claudeOpts) => {
+          // Read the system prompt file synchronously — the runVibe finally
+          // block hasn't run yet because we're still inside the runner.
+          capturedSystemPrompt = readFileSync(claudeOpts.systemPromptFile as string, 'utf8');
+          return Promise.resolve({ stdout: SAMPLE_YAML, stderr: '', exitCode: 0, durationMs: 1 });
+        },
+      });
+      await runVibe(
+        parseCommandLine([
+          'vibe',
+          '--slug=acme-legacy',
+          '--namespace=acme:legacy.app',
+          `--from-dir=${tmp}`,
+        ]),
+        opts,
+      );
+      expect(capturedSystemPrompt).toContain('reverse-engineering an existing codebase');
+      expect(capturedSystemPrompt).toContain('override_kind: net_new');
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 
   test('--out writes the generated YAML to disk before import', async () => {
