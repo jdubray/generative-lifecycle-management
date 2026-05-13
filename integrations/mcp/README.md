@@ -6,7 +6,7 @@ See `docs/mcp-fork-plan.md` for the architectural overview and `IMPLEMENTATION_P
 
 ## Status
 
-Phase A — scaffolding + `glm_status` tool. Read-only.
+Phases A–E complete. Read + verify + write surface in place, plus slash command templates.
 
 ## Install (local development)
 
@@ -35,11 +35,41 @@ Add an `mcpServers.glm` entry to `~/.claude/settings.json` (or per-project `.cla
 
 The MCP server reads `~/.glm/config.json` (populated by `glm init`) for `port`, `workspace`, and `token`.
 
-## Available tools (Phase A)
+## Install the slash commands
 
-- `glm_status` — return the current workspace summary (counts by stratum/status, last verifier run)
+The `commands/` directory ships five slash command templates that orchestrate the MCP tools into one-line invocations. Copy them to your Claude Code commands directory:
 
-More tools land in Phase B onward — see `IMPLEMENTATION_PLAN.md`.
+```bash
+# User-wide (works in every project)
+cp commands/glm-*.md ~/.claude/commands/
+
+# Or project-scoped (only active in this repo)
+mkdir -p .claude/commands
+cp commands/glm-*.md .claude/commands/
+```
+
+After copying, restart Claude Code (or run `/reload`) and the commands become available:
+
+- `/glm-status [workspace]` — workspace summary
+- `/glm-list-components [workspace]` — enumerate components
+- `/glm-verify [workspace]` — run the 7-gate verifier
+- `/glm-generate <component_id>` — full generate loop (resolve spec → write files → run acceptance verifier → record provenance, with up to 3 verifier retries)
+- `/glm-refine <glm_id>` — patch a node body via RFC-6902 JSON-Patch (acquire lock → PUT → release lock)
+
+## Available MCP tools
+
+Phases A–D land all eight tools:
+
+| Tool | Purpose |
+|---|---|
+| `glm_status` | Workspace summary (counts, last verifier run) |
+| `glm_list_components` | Enumerate components in a workspace |
+| `glm_get_node` | Fetch one node by glm_id (JSON code block) |
+| `glm_get_component_spec` | Resolved generation spec: prompt + acceptance + context bundle + hard constraints + source_dir |
+| `glm_verify` | Run the 7-gate sekkei verifier |
+| `glm_run_acceptance_verifier` | Run a component's `verifier.command` with cwd = source_dir |
+| `glm_record_generation` | Attest a completed generation (provenance + audit) |
+| `glm_apply_patch` | Apply RFC-6902 JSON-Patch to a node body |
 
 ## Auth
 
