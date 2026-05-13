@@ -34,7 +34,19 @@ export interface MigrationRecord {
 export function openDb(options: OpenDbOptions = {}): Database {
   if (_instance) return _instance;
 
+  // Outside test mode, refuse to silently fall back to `:memory:`. A server
+  // booted without a persistent path loses every workspace, user, and API
+  // token on the next restart — a footgun that bit us during initial
+  // dogfooding (server inherited no GLM_DB_PATH from its launch shell,
+  // ran in :memory:, and the next foreground restart had nothing).
   const path = options.path ?? process.env.GLM_DB_PATH ?? ':memory:';
+  if (path === ':memory:' && process.env.NODE_ENV !== 'test') {
+    throw new Error(
+      'GLM database path is not set. Refusing to start with `:memory:` outside NODE_ENV=test — ' +
+        'all workspaces and tokens would be lost on restart. ' +
+        'Set GLM_DB_PATH in your .env (e.g. `GLM_DB_PATH=./data/glm.db`) or pass --db-path to scripts.',
+    );
+  }
   // SQLite creates the DB file but not its parent directory; ensure it
   // exists so the first boot under a freshly-cloned tree just works.
   if (path !== ':memory:') {

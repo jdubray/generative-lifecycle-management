@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { Database } from 'bun:sqlite';
-import { appliedMigrations, runMigrations } from '../../../src/repository/db.ts';
+import { appliedMigrations, closeDb, openDb, runMigrations } from '../../../src/repository/db.ts';
 import { MIGRATIONS_DIR, openTestDb } from '../helpers.ts';
 
 describe('db.ts — pragmas, migrations, schema', () => {
@@ -81,5 +81,39 @@ describe('db.ts — pragmas, migrations, schema', () => {
         .get(name);
       expect(row).not.toBeNull();
     }
+  });
+});
+
+describe('openDb — production-mode safety check', () => {
+  // Drop the singleton AND any NODE_ENV the test runner set, then restore both
+  // afterwards. The check itself is what we are exercising.
+  const savedEnv = process.env.NODE_ENV;
+  const savedPath = process.env.GLM_DB_PATH;
+
+  beforeEach(() => {
+    closeDb();
+    delete process.env.GLM_DB_PATH;
+    process.env.NODE_ENV = 'development';
+  });
+
+  afterEach(() => {
+    closeDb();
+    if (savedEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = savedEnv;
+    if (savedPath === undefined) delete process.env.GLM_DB_PATH;
+    else process.env.GLM_DB_PATH = savedPath;
+  });
+
+  test('refuses to open :memory: outside NODE_ENV=test', () => {
+    expect(() => openDb()).toThrow(/Refusing to start with `:memory:`/);
+  });
+
+  test('refuses explicit options.path = :memory: outside test mode', () => {
+    expect(() => openDb({ path: ':memory:' })).toThrow(/Refusing to start with `:memory:`/);
+  });
+
+  test('NODE_ENV=test allows :memory: (no throw)', () => {
+    process.env.NODE_ENV = 'test';
+    expect(() => openDb({ path: ':memory:', migrationsDir: MIGRATIONS_DIR })).not.toThrow();
   });
 });
