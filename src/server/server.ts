@@ -67,6 +67,12 @@ function authorizeUpgrade(req: Request, workspaceId: string): SocketContext | nu
 
 const server = Bun.serve<SocketContext>({
   port,
+  // Bun.serve closes idle sockets after 10s by default. Solo-mode generation
+  // (POST /workspaces/:id/solo-generate) holds the connection open while the
+  // claude subprocess runs, which can take 60-120s. Bumping to the max (255s)
+  // gives the LLM call room to finish without the server killing the socket
+  // mid-request. WS and other short calls are unaffected.
+  idleTimeout: 255,
   fetch(req, srv) {
     const url = new URL(req.url);
     if (url.pathname.startsWith('/ws/')) {
