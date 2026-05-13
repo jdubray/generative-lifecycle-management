@@ -446,6 +446,33 @@ function aggregateDigest(files: Array<{ sha256: string }>): string {
 // (30-90s typical). With the sync version, Windows TCP would close the idle
 // client socket before the response could be written. Async spawn keeps the
 // loop turning and keep-alive frames flowing for the whole duration.
+//
+// NOTE — server-side spawn of `claude.exe` hangs on Windows when this file
+// is loaded inside the long-running GLM server (see docs/mcp-fork-plan.md).
+// MCP replaces this path; the comment below stashes the Puffin recipe in
+// case we ever revive headless server-side generation (e.g. for CI).
+//
+// === Puffin's recipe for spawning Claude from a long-running Windows process ===
+// Source: C:\Users\jjdub\code\puffin\plugins\code-review-plugin\lib\review-runner.js:110-156
+//
+//   import { spawn } from 'node:child_process';        // NOT Bun.spawn
+//   const proc = spawn('claude', [
+//     '--print',
+//     '--dangerously-skip-permissions',
+//     '--disallowedTools', 'AskUserQuestion',
+//   ], {
+//     cwd: projectPath,
+//     shell: true,                                     // ← key on Windows: cmd.exe /d /s /c
+//     stdio: ['pipe', 'pipe', 'pipe'],
+//     env: { ...process.env },
+//   });
+//   proc.stdin.write(prompt);                          // prompt via stdin pipe
+//   proc.stdin.end();
+//   // drain stdout/stderr via 'data' events; resolve on 'close'.
+//
+// The `shell: true` is what makes it work: Windows routes the launch through
+// cmd.exe which re-isolates console handles before exec-ing node.exe, so the
+// grandchild doesn't inherit the parent's listening sockets / WAL locks.
 
 /**
  * Default claude runner — Bun.spawn invoking `claude --print "<prompt>"`.
