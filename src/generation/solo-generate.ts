@@ -503,62 +503,79 @@ function aggregateDigest(files: Array<{ sha256: string }>): string {
 // client socket before the response could be written. Async spawn keeps the
 // loop turning and keep-alive frames flowing for the whole duration.
 
+/**
+ * Default claude runner — switched from node:child_process.spawn to Bun.spawn.
+ *
+ * Why: on Windows, `claude` is a `.cmd` shim and node's spawn cannot reliably
+ * find it (no PATHEXT resolution without shell:true) AND piping stdin through
+ * the cmd.exe wrapper to the underlying node process is fragile. Bun.spawn
+ * handles `.cmd` / `.bat` resolution natively and provides a clean async pipe.
+ *
+ * We also pass the user prompt via a temp file + cmd-shell stdin redirection
+ * is NOT needed — Bun.spawn's stdin pipe works reliably for binary streams on
+ * Windows.
+ *
+ * A 240-second internal timeout ensures we fail fast if claude hangs, before
+ * Bun.serve's 255s idleTimeout kills the upstream HTTP connection.
+ */
+const CLAUDE_TIMEOUT_MS = 240_000;
+
 function defaultClaudeRunner(): ClaudeRunner {
   return async ({ userText, systemPromptFile, model }) => {
-    return await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-      let child;
-      try {
-        child = spawn(
-          'claude',
-          ['--print', '--model', model, '--system-prompt-file', systemPromptFile],
-          { stdio: ['pipe', 'pipe', 'pipe'] },
-        );
-      } catch (err) {
-        if (isMissingBinary(err)) {
-          reject(missingClaudeError(err));
-        } else {
-          reject(err);
-        }
-        return;
-      }
-
-      const stdoutChunks: Buffer[] = [];
-      const stderrChunks: Buffer[] = [];
-      child.stdout?.on('data', (c: Buffer) => stdoutChunks.push(c));
-      child.stderr?.on('data', (c: Buffer) => stderrChunks.push(c));
-      child.stdin?.on('error', () => {
-        /* surfaced via 'error' / 'exit' below */
+    let proc;
+    try {
+      proc = Bun.spawn({
+        cmd: ['claude', '--print', '--model', model, '--system-prompt-file', systemPromptFile],
+        stdin: 'pipe',
+        stdout: 'pipe',
+        stderr: 'pipe',
       });
+    } catch (err) {
+      if (isMissingBinary(err)) throw missingClaudeError(err);
+      throw err;
+    }
+
+    // Write the user turn and close stdin.
+    try {
+      proc.stdin.write(userText);
+      await proc.stdin.end();
+    } catch {
+      // Child died before reading stdin — the exit code below surfaces it.
+    }
+
+    // Hard timeout — kills the subprocess if it hasn't exited in 240s. This
+    // protects the HTTP request from outliving Bun.serve's idleTimeout (255s).
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
       try {
-        child.stdin?.write(userText, 'utf8');
-        child.stdin?.end();
+        proc.kill();
       } catch {
-        // child died before reading stdin; the 'error' / 'exit' event handles it.
+        /* ignore */
       }
+    }, CLAUDE_TIMEOUT_MS);
 
-      child.on('error', (err) => {
-        if (isMissingBinary(err)) {
-          reject(missingClaudeError(err));
-        } else {
-          reject(err);
-        }
-      });
+    // Drain stdout + stderr concurrently with proc.exited.
+    const [stdout, stderr, exitCode] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    clearTimeout(timer);
 
-      child.on('exit', (code) => {
-        const stdout = Buffer.concat(stdoutChunks).toString('utf8');
-        const stderr = Buffer.concat(stderrChunks).toString('utf8');
-        if (code !== 0) {
-          reject(
-            new SoloGenerateError(
-              `claude CLI exited ${code}: ${stderr.trim().slice(0, 500)}`,
-              502,
-            ),
-          );
-          return;
-        }
-        resolve({ stdout, stderr });
-      });
-    });
+    if (timedOut) {
+      throw new SoloGenerateError(
+        `claude CLI timed out after ${CLAUDE_TIMEOUT_MS}ms with no response`,
+        502,
+      );
+    }
+    if (exitCode !== 0) {
+      throw new SoloGenerateError(
+        `claude CLI exited ${exitCode}: ${stderr.trim().slice(0, 500) || '(no stderr)'}`,
+        502,
+      );
+    }
+    return { stdout, stderr };
   };
 }
 
