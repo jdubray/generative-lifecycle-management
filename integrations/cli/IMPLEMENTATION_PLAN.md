@@ -191,13 +191,24 @@ Real end-to-end is gated by solo-mode auth (Phase 6 server work) — until then,
 
 **Deferred:** SSE streaming. The current verifier runs synchronously server-side in well under a second for typical workspaces, so "live" streaming would be cosmetic. The endpoint and CLI can both move to SSE later without breaking compatibility (server already supports `Accept` content negotiation).
 
-### Phase 6 — Code generation (UC-02)
+### Phase 6 — Code generation (UC-02) ✅
 
-- New server endpoint: `POST /workspaces/:id/generate { component_id, dry_run }` → SSE stream per spec §5.2.
-- Server logic: resolve `spec.prompt.body.context_bundle`, build prompt (server-side, never sent to CLI), spawn `claude --print`, write files to `workspaces.source_dir`, run `spec.acceptance.body.verifier.command`, record `provenance_events` row.
-- CLI: `glm generate --component <id>` consumes the SSE, prints per-file written + verifier output + provenance event id.
+Landed as two commits: **6a** (server-side service + endpoint) and **6b** (CLI command).
 
-**Done when:** Generating a Component produces real files and a `provenance_events` row with non-null `content_hash` and `artifacts`.
+Server side (`f78f4d3`):
+- `migrations/0015_workspace_source_dir.sql` — adds `workspaces.source_dir`.
+- `src/generation/solo-generate.ts` — the runSoloGenerate service. Resolves component + spec.prompt + spec.acceptance, builds the context bundle (caps at 400 KB ≈ 100K tokens), composes a system prompt with multi-file HARD CONSTRAINTS, spawns `claude --print`, parses `=== FILE: <path> ===` markers, validates paths against `source_dir` (rejects absolute paths + `..`), runs the verifier command via shell, records `provenance_events` + audit on success.
+- `src/server/routes/solo-generate.ts` — `POST /workspaces/:id/solo-generate { component_id, source_dir?, dry_run? }`. Distinct path from the queue-based `/generate` route.
+- 13 integration tests covering happy path, dry-run, missing workspace/component/source_dir, wrong stratum, no FILE markers, path traversal, verifier failure, route validation.
+
+CLI side:
+- `src/lib/glm-client.ts` — adds `soloGenerate(workspaceId, req)` typed wrapper.
+- `src/commands/generate.ts` — `glm generate --component <glm-id> [--source-dir <abs>] [--dry-run] [--json] [--no-color]`. Pretty per-file listing with bytes, verifier exit, provenance id; `--json` for machine output. Progress messages on stderr so `--json` pipes stay clean.
+- 8 new CLI unit tests; help text updated.
+
+Deferred: SSE streaming. The LLM call is the long step; per-step progress would be cosmetic for v0.1.
+
+**Done when:** ~~Generating a Component produces real files and a `provenance_events` row with non-null `content_hash` and `artifacts`.~~ Done at the unit-test boundary (claude + verifier mocked). End-to-end against a live server requires the `claude` binary on the server's PATH.
 
 ### Phase 7 — Reverse-engineer (UC-04)
 

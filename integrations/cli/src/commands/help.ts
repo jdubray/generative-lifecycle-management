@@ -13,8 +13,12 @@ COMMANDS
                           Run the 6 verifier gates and print per-gate results.
                           Exit 0 on overall pass, 1 on any gate failure.
 
-  generate --component <id> [--workspace <id>] [--dry-run]
-                          Generate output files for one Component from its spec.prompt.
+  generate --component <glm-id> [--workspace <id>] [--source-dir <abs-path>]
+           [--dry-run] [--json] [--no-color]
+                          Generate code files for one Component. Server resolves the
+                          spec.prompt, spawns claude, writes outputs to source_dir,
+                          runs the acceptance verifier, records provenance.
+                          --source-dir is persisted on the workspace if provided.
 
   import-sekkei <file.yaml> [--workspace <id>]
                           Import a sekkei YAML file into the workspace.

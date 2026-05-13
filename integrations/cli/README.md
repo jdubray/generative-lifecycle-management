@@ -54,7 +54,7 @@ glm --help
 | `glm init` | 4.5 | ✅ implemented |
 | `glm vibe --from-dir <path>` | 7 | ⏳ planned |
 | `glm verify` | 5 | ✅ implemented |
-| `glm generate --component <id>` | 6 | ⏳ planned |
+| `glm generate --component <id>` | 6 | ✅ implemented |
 | `glm refine --node <id>` | 8 | ⏳ planned |
 | `glm import-sekkei <file>` | 8 | ⏳ planned |
 

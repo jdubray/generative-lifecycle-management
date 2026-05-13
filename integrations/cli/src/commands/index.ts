@@ -3,6 +3,7 @@ import { runStatus } from './status.ts';
 import { runVibe } from './vibe.ts';
 import { runInit } from './init.ts';
 import { runVerify } from './verify.ts';
+import { runGenerate } from './generate.ts';
 import type { ParsedArgs } from '../lib/argv.ts';
 
 /**
@@ -27,7 +28,7 @@ const COMMANDS: Record<string, CommandFn> = {
   status: (args) => runStatus(args),
   vibe: (args) => runVibe(args),
   verify: (args) => runVerify(args),
-  generate: notYetImplemented('generate', 6),
+  generate: (args) => runGenerate(args),
   refine: notYetImplemented('refine', 8),
   'import-sekkei': notYetImplemented('import-sekkei', 8),
   init: (args) => runInit(args),

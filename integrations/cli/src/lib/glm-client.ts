@@ -83,6 +83,23 @@ export interface VerifierRun {
   gateResults: { gates: VerifierGate[] };
 }
 
+export interface SoloGenerateRequest {
+  componentGlmId: string;
+  /** Absolute path; persisted onto the workspace if provided. */
+  sourceDir?: string;
+  dryRun?: boolean;
+}
+
+export interface SoloGenerateResult {
+  componentGlmId: string;
+  outputDir: string;
+  dryRun: boolean;
+  filesWritten: Array<{ path: string; bytes: number; sha256: string }>;
+  verifier: { command: string; exitCode: number; stdout: string; stderr: string };
+  provenance: { id: string; subjectDigest: string } | null;
+  durationMs: number;
+}
+
 export class GlmClient {
   public readonly baseUrl: string;
   private readonly token: string | undefined;
@@ -136,6 +153,30 @@ export class GlmClient {
       {},
     );
     return run;
+  }
+
+  /**
+   * POST /api/v1/workspaces/:id/solo-generate — Solo-mode UC-02. Resolves the
+   * component's spec.prompt, spawns claude server-side, writes outputs to
+   * `source_dir`, runs the acceptance verifier, returns the result.
+   *
+   * Long-running: the server holds the connection open for the duration of
+   * the LLM call (typically 10-60s). Callers should not impose a short
+   * client-side timeout.
+   */
+  async soloGenerate(
+    workspaceId: string,
+    req: SoloGenerateRequest,
+  ): Promise<SoloGenerateResult> {
+    const { result } = await this.post<{ result: SoloGenerateResult }>(
+      `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/solo-generate`,
+      {
+        component_id: req.componentGlmId,
+        source_dir: req.sourceDir,
+        dry_run: req.dryRun ?? false,
+      },
+    );
+    return result;
   }
 
   // --------------------------------------------------------------------- core
