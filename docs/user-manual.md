@@ -626,7 +626,7 @@ Exit 0 on overall pass, 1 on any gate failure. `--verbose` shows the full issue 
 
 ### 8.7 Generating code (UC-02)
 
-> **Platform note.** `glm generate` is supported on macOS and Linux. On Windows it is blocked — spawning `claude.exe` from a long-running parent process hangs reliably (handle inheritance into the `claude → cmd.exe → node` grandchild). Windows users should run `/glm-generate <component_id>` in Claude Code with the GLM MCP integration installed; see [`integrations/mcp/README.md`](../integrations/mcp/README.md). Pass `--allow-unsupported-platform` to bypass the guard at your own risk.
+> **Platform note.** `glm generate` runs on macOS, Linux, and Windows. Windows generations are notably slower (claude on Sonnet 4.6 takes 8–12 minutes for a typical 4-file component) and the CLI produces no progress output until claude exits — it captures stdout in one shot at the end. Watch from another terminal with `Get-Process claude` if you want to confirm it's alive. If claude emits prose instead of the required `=== FILE: <path> ===` format, the raw response is preserved in a temp directory referenced in the error so you can inspect what the model actually said.
 
 ```bash
 glm generate \

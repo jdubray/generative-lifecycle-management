@@ -91,20 +91,16 @@ export async function runGenerate(args: ParsedArgs, opts: RunGenerateOptions = {
   const stdout = io.stdout;
   const stderr = io.stderr;
 
-  const platform = opts.platform ?? process.platform;
-  const allowUnsupported =
-    opts.allowUnsupportedPlatform === true || args.flags['allow-unsupported-platform'] === true;
-  if (platform === 'win32' && !allowUnsupported) {
-    stderr.write(
-      `glm: 'glm generate' is not supported on Windows. Spawning claude from a CLI process\n` +
-        `     hangs the same way it does server-side (Windows handle-inheritance into the\n` +
-        `     claude.exe → cmd.exe → node grandchild). Use Claude Code instead:\n\n` +
-        `       /glm-generate <component_id>\n\n` +
-        `     See integrations/mcp/README.md for the one-time install.\n` +
-        `     (Force-try anyway with --allow-unsupported-platform — at your own risk.)\n`,
-    );
-    return 70;
-  }
+  // Platform note: an earlier build blocked Windows here because we believed
+  // spawning claude.exe from a CLI process hung indefinitely. End-to-end
+  // testing showed it was actually slow (~10 min on large prompts), not
+  // hung — the original 240s server-side timeout was killing it mid-flight.
+  // The guard is removed; Windows users may just see a long quiet pause
+  // until claude finishes. Future work: stream claude's stdout to stderr
+  // so generation has a progress signal.
+  void opts.platform;
+  void opts.allowUnsupportedPlatform;
+  void args.flags['allow-unsupported-platform'];
 
   let config: ResolvedConfig;
   try {
@@ -173,8 +169,15 @@ export async function runGenerate(args: ParsedArgs, opts: RunGenerateOptions = {
     outputs: spec.outputs,
   });
 
+  // The tmp dir holds the system-prompt file we pass to claude and a copy of
+  // claude's raw stdout. We deliberately do NOT cleanup on error — keeping
+  // the response on disk is the only way for the user to inspect what claude
+  // emitted when parsing fails (the most common failure mode is "model
+  // emitted prose instead of FILE markers"). Successful runs cleanup at the
+  // end of the function.
   const tmp = mkdtempSync(join(tmpdir(), 'glm-gen-'));
   const systemPromptFile = join(tmp, 'system-prompt.txt');
+  const responseFile = join(tmp, 'claude-response.txt');
   let llmStdout = '';
   let llmStderr = '';
   try {
@@ -188,11 +191,12 @@ export async function runGenerate(args: ParsedArgs, opts: RunGenerateOptions = {
     });
     llmStdout = result.stdout;
     llmStderr = result.stderr;
+    // Persist stdout immediately so it's available for inspection even if the
+    // process is killed before we finish parsing.
+    writeFileSync(responseFile, llmStdout, 'utf8');
   } catch (err) {
-    try { rmSync(tmp, { recursive: true, force: true }); } catch { /* ignore */ }
+    stderr.write(`(claude invocation failed; diagnostics in ${tmp})\n`);
     return reportError(err, stderr);
-  } finally {
-    try { rmSync(tmp, { recursive: true, force: true }); } catch { /* ignore */ }
   }
   void llmStderr; // captured for future diagnostics; unused today
 
@@ -201,6 +205,7 @@ export async function runGenerate(args: ParsedArgs, opts: RunGenerateOptions = {
   try {
     parsed = parseMultiFileResponse(llmStdout, spec.outputs.map((o) => o.path));
   } catch (err) {
+    stderr.write(`(raw claude response preserved at ${responseFile})\n`);
     return reportError(err, stderr);
   }
 
@@ -268,6 +273,15 @@ export async function runGenerate(args: ParsedArgs, opts: RunGenerateOptions = {
   // 8. Clean up dry-run staging.
   if (dryRun) {
     try { rmSync(outputDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
+
+  // Cleanup the generation tmp dir on full success. On any error path above
+  // we return early WITHOUT this cleanup so the user can inspect the raw
+  // claude response. Use `glm-gen-*` glob to reap stale dirs if needed.
+  if (success) {
+    try { rmSync(tmp, { recursive: true, force: true }); } catch { /* ignore */ }
+  } else {
+    stderr.write(`(diagnostics preserved at ${tmp})\n`);
   }
 
   if (!success) {

@@ -54,7 +54,7 @@ glm --help
 | `glm init` | 4.5 | ✅ implemented |
 | `glm vibe --from-dir <path>` | 7 | ✅ implemented |
 | `glm verify` | 5 | ✅ implemented |
-| `glm generate --component <id>` | 6 | ✅ implemented (POSIX); blocked on Windows — use `/glm-generate` |
+| `glm generate --component <id>` | 6 | ✅ implemented (cross-platform; Windows runs are slower) |
 | `glm refine --node <id>` | 8 | ✅ implemented |
 | `glm import-sekkei <file>` | 8 | ✅ implemented |
 
@@ -77,10 +77,18 @@ Defaults: `port=3000`, `workspace=default`, `model=claude-sonnet-4-6`.
 | Command | macOS / Linux | Windows |
 |---|---|---|
 | `init`, `status`, `verify`, `import-sekkei` | ✅ | ✅ |
-| `vibe`, `refine` | ✅ | ✅ (spawns claude in the user's shell) |
-| `generate` | ✅ | ❌ (use `/glm-generate` in Claude Code instead) |
+| `vibe`, `refine` | ✅ | ✅ |
+| `generate` | ✅ | ✅ (slower; see note) |
 
-Windows users get a clear error from `glm generate` directing them to the MCP slash-command flow. The root cause is documented in [`docs/mcp-fork-plan.md`](../../docs/mcp-fork-plan.md): spawning `claude.exe` from a long-running Bun/Node process on Windows hangs (handle-inheritance into the `claude.exe → cmd.exe → node` grandchild). The `--allow-unsupported-platform` flag bypasses the guard if you want to experiment.
+**Windows generation note.** `glm generate` on Windows runs to completion but produces no on-screen output while claude is generating — the CLI captures stdout only at exit. A 4-file generation on a large component spec takes roughly **8–12 minutes** on Sonnet 4.6; you'll see the `generate: invoking ...` line and then nothing until claude finishes. We earlier mistakenly added a Windows block to this command; that block has been removed.
+
+If you want progress visibility while testing, you can watch claude's process state from another terminal:
+
+```powershell
+Get-Process claude -ErrorAction SilentlyContinue | Format-Table Id, CPU, StartTime
+```
+
+On parse failure (claude emits prose instead of `=== FILE: <path> ===` blocks), the CLI preserves the raw response in a temp directory printed in the error — `cat` it to debug.
 
 ---
 

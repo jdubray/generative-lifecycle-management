@@ -352,34 +352,49 @@ describe('glm generate', () => {
     expect(exit).toBe(66);
   });
 
-  test('refuses to run on Windows without --allow-unsupported-platform', async () => {
-    const opts = makeOpts({ platform: 'win32' });
-    tmpDirs.push(opts.tmpSourceDir);
-    const exit = await runGenerate(
-      parseCommandLine(['generate', `--component=${COMPONENT}`]),
-      { ...opts, clientFactory: () => fakeClient({}) },
-    );
-    expect(exit).toBe(70);
-    const err = (opts.stderr as StringStream).buffer;
-    expect(err).toContain("not supported on Windows");
-    expect(err).toContain('/glm-generate');
-  });
-
-  test('--allow-unsupported-platform bypasses the Windows guard', async () => {
+  test('runs on Windows too (the old guard was removed after we confirmed it just took longer)', async () => {
     const opts = makeOpts({ platform: 'win32' });
     tmpDirs.push(opts.tmpSourceDir);
     const exit = await runGenerate(
       parseCommandLine([
         'generate',
         `--component=${COMPONENT}`,
-        '--allow-unsupported-platform',
       ]),
+      {
+        ...opts,
+        clientFactory: () =>
+          fakeClient({ getComponentSpec: async () => sampleSpec(opts.tmpSourceDir) }),
+      },
+    );
+    expect(exit).toBe(0);
+  });
+
+  test('on parse failure: preserves claude-response.txt and references the tmp dir in stderr', async () => {
+    const opts = makeOpts({
+      claudeRunner: async () => ({ stdout: 'I will generate the files...', stderr: '' }),
+    });
+    tmpDirs.push(opts.tmpSourceDir);
+    const exit = await runGenerate(
+      parseCommandLine(['generate', `--component=${COMPONENT}`]),
       {
         ...opts,
         clientFactory: () => fakeClient({ getComponentSpec: async () => sampleSpec(opts.tmpSourceDir) }),
       },
     );
-    expect(exit).toBe(0);
+    expect(exit).toBe(70);
+    const err = (opts.stderr as StringStream).buffer;
+    // Extract the diagnostics path mentioned in stderr (looks like
+    // `…preserved at /tmp/glm-gen-XXXXXX` or `claude-response.txt`).
+    const match = err.match(/preserved (?:at|at the path) ([^\s)]+)/);
+    expect(match).not.toBeNull();
+    const diagPath = match?.[1] ?? '';
+    expect(diagPath.length).toBeGreaterThan(0);
+    // The tmp dir's stdout file should contain claude's actual response.
+    const responseFile = diagPath.endsWith('.txt') ? diagPath : `${diagPath}/claude-response.txt`;
+    expect(readFileSync(responseFile, 'utf8')).toBe('I will generate the files...');
+    // Cleanup the leftover tmp dir for this test.
+    const dir = diagPath.endsWith('.txt') ? diagPath.replace(/[\\/]claude-response\.txt$/, '') : diagPath;
+    try { rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
   });
 
   test('HTTP 422 from acceptance-verify → exit 70', async () => {
