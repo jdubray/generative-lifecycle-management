@@ -28,6 +28,17 @@ export function requestLogging(opts: { sink?: (line: string) => void } = {}): Mi
       return next();
     }
     const started = performance.now();
+    // Emit a "request_start" line immediately so long-running endpoints
+    // (e.g. /solo-generate, /vibe) are visible in the log before they return.
+    sink(
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        request_id: id,
+        event: 'request_start',
+        method: c.req.method,
+        path,
+      }),
+    );
     let err: unknown = null;
     try {
       await next();

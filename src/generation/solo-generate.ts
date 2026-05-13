@@ -110,6 +110,19 @@ export async function runSoloGenerate(
   const model = deps.model ?? process.env.GLM_CLAUDE_MODEL ?? DEFAULT_MODEL;
   const clock = deps.clock ?? (() => new Date());
   const generatorIdentity = deps.generatorIdentity ?? `claude-cli/${model}`;
+  const log = (event: string, extra: Record<string, unknown> = {}): void => {
+    if (process.env.NODE_ENV === 'test') return;
+    console.log(
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        component: 'solo-generate',
+        event,
+        component_glm_id: input.componentGlmId,
+        ...extra,
+      }),
+    );
+  };
+  log('start', { workspace_id: input.workspaceId, dry_run: input.dryRun ?? false });
 
   // 1. Resolve workspace + source_dir.
   const ws = deps.repos.workspaces.findById(input.workspaceId);
@@ -156,9 +169,18 @@ export async function runSoloGenerate(
     );
   }
 
+  log('resolved', {
+    expected_outputs: outputs.map((o) => o.path),
+    verifier_command: verifierCommand,
+  });
+
   // 3. Build the context bundle from spec.prompt.body.context_bundle[].
   const contextRefs = Array.isArray(promptBody.context_bundle) ? promptBody.context_bundle : [];
   const bundle = buildContextBundle(deps.repos.nodes, input.workspaceId, contextRefs);
+  log('context_bundle_built', {
+    refs_total: contextRefs.length,
+    bytes: Buffer.byteLength(bundle.text, 'utf8'),
+  });
 
   // 4. Compose system prompt + user prompt.
   const systemPrompt = buildSystemPrompt(promptBody, bundle.text, outputs);
@@ -173,9 +195,20 @@ export async function runSoloGenerate(
   let llmStderr = '';
   try {
     writeFileSync(systemPromptFile, systemPrompt, 'utf8');
+    log('claude_spawn', {
+      model,
+      system_prompt_bytes: Buffer.byteLength(systemPrompt, 'utf8'),
+      user_prompt_bytes: Buffer.byteLength(userPrompt, 'utf8'),
+    });
+    const llmStart = Date.now();
     const result = await claudeRunner({ userText: userPrompt, systemPromptFile, model });
     llmStdout = result.stdout;
     llmStderr = result.stderr;
+    log('claude_done', {
+      duration_ms: Date.now() - llmStart,
+      stdout_bytes: Buffer.byteLength(llmStdout, 'utf8'),
+      stderr_bytes: Buffer.byteLength(llmStderr, 'utf8'),
+    });
   } finally {
     try {
       rmSync(tmp, { recursive: true, force: true });
@@ -186,6 +219,7 @@ export async function runSoloGenerate(
 
   // 6. Parse the multi-file response.
   const files = parseMultiFileResponse(llmStdout, outputs.map((o) => o.path));
+  log('parsed', { files_parsed: files.length });
 
   // 7. Write files (under source_dir, or a staging dir when dry-run).
   const outputDir = input.dryRun ? mkdtempSync(join(tmpdir(), 'glm-gen-dry-')) : sourceDir;
@@ -206,10 +240,20 @@ export async function runSoloGenerate(
     }
     throw err;
   }
+  log('files_written', {
+    output_dir: outputDir,
+    files: written.map((f) => ({ path: f.path, bytes: f.bytes })),
+  });
 
   // 8. Run the verifier.
   const verifierRunner = input.verifierRunner ?? defaultVerifierRunner;
+  log('verifier_spawn', { command: verifierCommand, cwd: outputDir });
+  const verifierStart = Date.now();
   const verifier = await verifierRunner({ command: verifierCommand, cwd: outputDir });
+  log('verifier_done', {
+    exit_code: verifier.exitCode,
+    duration_ms: Date.now() - verifierStart,
+  });
 
   // 9. Record provenance (only on success, and not for dry-run).
   let provenance: ProvenanceEvent | null = null;
