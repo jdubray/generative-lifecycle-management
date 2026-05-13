@@ -1,25 +1,49 @@
-import { isAbsolute, resolve } from 'node:path';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { dirname, isAbsolute, join, resolve as resolvePath } from 'node:path';
 import {
   resolveConfig,
   type ResolvedConfig,
   type ResolveConfigInput,
 } from '../lib/config.ts';
-import { GlmClient, type SoloGenerateResult } from '../lib/glm-client.ts';
+import {
+  GlmClient,
+  type AcceptanceVerifyResult,
+  type ComponentSpecPayload,
+  type ProvenanceEvent,
+} from '../lib/glm-client.ts';
 import { CliError, CliUsageError } from '../lib/errors.ts';
 import { makeColorize, shouldUseColor } from '../lib/color.ts';
+import { runOneShot, type RunOneShotOptions } from '../lib/claude-cli.ts';
+import {
+  buildSystemPrompt,
+  buildUserPrompt,
+  GenerateError,
+  parseMultiFileResponse,
+  resolveSafePath,
+} from '../lib/generate-spec.ts';
 import type { ParsedArgs } from '../lib/argv.ts';
 
 /**
- * `glm generate` — UC-02. POST /workspaces/:id/solo-generate, render the
- * server's SoloGenerateResult, exit 0/1.
+ * `glm generate` — UC-02.
  *
- * The server is doing the heavy work (claude subprocess + file I/O + verifier).
- * The CLI just relays a single HTTP round-trip and pretty-prints the result.
+ * Drives a full client-side generation: fetch the component spec from the
+ * server, spawn claude in the user's shell (the same path `glm vibe` uses —
+ * proven to work cross-platform), parse the multi-file response, write the
+ * files under `source_dir`, run the acceptance verifier server-side, and
+ * record provenance.
+ *
+ * This replaces the previous server-side `/solo-generate` invocation, which
+ * hangs on Windows when Bun.spawn launches claude.exe from inside a long-
+ * running Bun.serve. The server-side route is preserved but unused by the
+ * CLI; see docs/mcp-fork-plan.md for context.
  *
  * Required:
  *   --component <glm-id>     e.g. acme:web.shop.catalog.product_repository
  * Optional:
- *   --source-dir <abs-path>  persisted onto the workspace
+ *   --source-dir <abs-path>  persisted onto the workspace; required if
+ *                            the workspace has no source_dir set
  *   --dry-run                files written to a staging dir, no provenance
  *   --json                   machine-readable result on stdout
  *   --no-color               disable ANSI even on a TTY
@@ -30,7 +54,7 @@ import type { ParsedArgs } from '../lib/argv.ts';
  *   64  usage (missing --component, relative --source-dir)
  *   66  workspace or component not found
  *   69  GLM server unreachable
- *   70  HTTP 4xx/5xx from server
+ *   70  claude CLI failed / spec error
  *   77  auth failure
  */
 
@@ -39,6 +63,18 @@ export interface RunGenerateOptions {
   clientFactory?: (cfg: ResolvedConfig) => GlmClient;
   resolveOverrides?: Omit<ResolveConfigInput, 'args'>;
   colorEnabled?: boolean;
+  /** Override claude-cli spawn for tests. */
+  claudeRunner?: (opts: RunOneShotOptions) => Promise<{ stdout: string; stderr: string }>;
+}
+
+export interface GenerateResult {
+  componentGlmId: string;
+  outputDir: string;
+  dryRun: boolean;
+  filesWritten: Array<{ path: string; bytes: number; sha256: string }>;
+  verifier: AcceptanceVerifyResult;
+  provenance: ProvenanceEvent | null;
+  durationMs: number;
 }
 
 export async function runGenerate(args: ParsedArgs, opts: RunGenerateOptions = {}): Promise<number> {
@@ -58,29 +94,165 @@ export async function runGenerate(args: ParsedArgs, opts: RunGenerateOptions = {
     return reportError(new CliUsageError('--component is required'), stderr);
   }
 
-  let sourceDir: string | undefined;
+  let sourceDirOverride: string | undefined;
   const sourceDirRaw = stringFlag(args, 'source-dir');
   if (sourceDirRaw !== undefined) {
-    // Resolve to absolute now so the server gets an unambiguous path even if
-    // the user passed a relative one. The server still validates.
-    const abs = isAbsolute(sourceDirRaw) ? sourceDirRaw : resolve(process.cwd(), sourceDirRaw);
-    sourceDir = abs;
+    const abs = isAbsolute(sourceDirRaw)
+      ? sourceDirRaw
+      : resolvePath(process.cwd(), sourceDirRaw);
+    sourceDirOverride = abs;
   }
 
   const dryRun = args.flags['dry-run'] === true;
-
+  const start = Date.now();
   const client = (opts.clientFactory ?? defaultClientFactory)(config);
 
-  stderr.write(`generate: invoking ${config.model} on component '${componentGlmId}'…\n`);
-  let result: SoloGenerateResult;
+  // 1. Persist --source-dir on the workspace (if provided) so the acceptance
+  // verifier endpoint and the spec endpoint both see it.
+  if (sourceDirOverride !== undefined) {
+    try {
+      await client.setSourceDir(config.workspace, sourceDirOverride);
+    } catch (err) {
+      return reportError(err, stderr);
+    }
+  }
+
+  // 2. Fetch the resolved component spec.
+  stderr.write(`generate: resolving spec for '${componentGlmId}'…\n`);
+  let spec: ComponentSpecPayload;
   try {
-    result = await client.soloGenerate(config.workspace, {
-      componentGlmId,
-      sourceDir,
-      dryRun,
-    });
+    spec = await client.getComponentSpec(config.workspace, componentGlmId);
   } catch (err) {
     return reportError(err, stderr);
+  }
+
+  const sourceDir = spec.sourceDir;
+  if (!sourceDir && !dryRun) {
+    return reportError(
+      new CliError(
+        `workspace '${config.workspace}' has no source_dir. Pass --source-dir <abs-path> or set it first.`,
+        66,
+      ),
+      stderr,
+    );
+  }
+
+  // 3. Compose system + user prompts, spawn claude in the user's shell.
+  const systemPrompt = buildSystemPrompt({
+    promptTemplate: spec.promptTemplate,
+    contextBundleText: spec.contextBundle.text,
+    outputs: spec.outputs,
+  });
+  const userPrompt = buildUserPrompt({
+    glmId: spec.component.glmId,
+    title: spec.component.title,
+    outputs: spec.outputs,
+  });
+
+  const tmp = mkdtempSync(join(tmpdir(), 'glm-gen-'));
+  const systemPromptFile = join(tmp, 'system-prompt.txt');
+  let llmStdout = '';
+  let llmStderr = '';
+  try {
+    writeFileSync(systemPromptFile, systemPrompt, 'utf8');
+    stderr.write(`generate: invoking ${config.model} on component '${componentGlmId}'…\n`);
+    const claudeRunner = opts.claudeRunner ?? defaultClaudeRunner;
+    const result = await claudeRunner({
+      userText: userPrompt,
+      systemPromptFile,
+      model: config.model,
+    });
+    llmStdout = result.stdout;
+    llmStderr = result.stderr;
+  } catch (err) {
+    try { rmSync(tmp, { recursive: true, force: true }); } catch { /* ignore */ }
+    return reportError(err, stderr);
+  } finally {
+    try { rmSync(tmp, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
+  void llmStderr; // captured for future diagnostics; unused today
+
+  // 4. Parse the multi-file response.
+  let parsed;
+  try {
+    parsed = parseMultiFileResponse(llmStdout, spec.outputs.map((o) => o.path));
+  } catch (err) {
+    return reportError(err, stderr);
+  }
+
+  // 5. Write files (under source_dir, or a staging dir when --dry-run).
+  const outputDir = dryRun ? mkdtempSync(join(tmpdir(), 'glm-gen-dry-')) : (sourceDir as string);
+  const written: GenerateResult['filesWritten'] = [];
+  try {
+    for (const file of parsed) {
+      const safePath = resolveSafePath(outputDir, file.path);
+      mkdirSync(dirname(safePath), { recursive: true });
+      writeFileSync(safePath, file.content, 'utf8');
+      const sha256 = `sha256:${createHash('sha256').update(file.content, 'utf8').digest('hex')}`;
+      written.push({
+        path: file.path,
+        bytes: Buffer.byteLength(file.content, 'utf8'),
+        sha256,
+      });
+    }
+  } catch (err) {
+    if (dryRun) {
+      try { rmSync(outputDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    }
+    return reportError(err, stderr);
+  }
+
+  // 6. Run the acceptance verifier (skipped for dry-run since the staging
+  // dir doesn't have a test harness pointed at it).
+  let verifier: AcceptanceVerifyResult;
+  if (dryRun) {
+    verifier = {
+      command: spec.verifierCommand,
+      cwd: outputDir,
+      exitCode: 0,
+      stdout: '(skipped — dry-run)',
+      stderr: '',
+      durationMs: 0,
+    };
+  } else {
+    stderr.write('generate: running acceptance verifier…\n');
+    try {
+      verifier = await client.runAcceptanceVerify(config.workspace, componentGlmId);
+    } catch (err) {
+      return reportError(err, stderr);
+    }
+  }
+
+  // 7. Record provenance (only on success, and only when not dry-run).
+  let provenance: ProvenanceEvent | null = null;
+  const success = verifier.exitCode === 0;
+  if (success && !dryRun) {
+    try {
+      provenance = await client.recordGeneration(config.workspace, {
+        componentId: componentGlmId,
+        files: written,
+        verifierExitCode: verifier.exitCode,
+        bindingHash: spec.contextBundle.bindingHash,
+        generatorIdentity: `claude-cli/${config.model}`,
+        durationMs: Date.now() - start,
+      });
+    } catch (err) {
+      return reportError(err, stderr);
+    }
+  }
+
+  // 8. Clean up dry-run staging.
+  if (dryRun) {
+    try { rmSync(outputDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
+
+  if (!success) {
+    stderr.write(
+      `verifier failed (exit ${verifier.exitCode}). ` +
+        (verifier.stderr.trim().slice(0, 500) || '(no stderr)') +
+        '\n',
+    );
+    return 1;
   }
 
   const useColor = shouldUseColor({
@@ -89,6 +261,16 @@ export async function runGenerate(args: ParsedArgs, opts: RunGenerateOptions = {
     flags: args.flags,
   });
   const c = makeColorize(useColor);
+
+  const result: GenerateResult = {
+    componentGlmId,
+    outputDir,
+    dryRun,
+    filesWritten: written,
+    verifier,
+    provenance,
+    durationMs: Date.now() - start,
+  };
 
   if (config.json) {
     stdout.write(`${JSON.stringify(result)}\n`);
@@ -119,12 +301,21 @@ function defaultClientFactory(cfg: ResolvedConfig): GlmClient {
   return new GlmClient({ baseUrl: cfg.baseUrl, token: cfg.token });
 }
 
+async function defaultClaudeRunner(opts: RunOneShotOptions): Promise<{ stdout: string; stderr: string }> {
+  const result = await runOneShot(opts);
+  return { stdout: result.stdout, stderr: result.stderr };
+}
+
 function stringFlag(args: ParsedArgs, name: string): string | undefined {
   const v = args.flags[name];
   return typeof v === 'string' && v.length > 0 ? v : undefined;
 }
 
 function reportError(err: unknown, stderr: NodeJS.WritableStream): number {
+  if (err instanceof GenerateError) {
+    stderr.write(`glm: ${err.message}\n`);
+    return err.exitCode;
+  }
   if (err instanceof CliError) {
     stderr.write(`glm: ${err.message}\n`);
     return err.exitCode;

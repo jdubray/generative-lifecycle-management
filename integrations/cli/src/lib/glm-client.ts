@@ -100,6 +100,63 @@ export interface SoloGenerateResult {
   durationMs: number;
 }
 
+export interface SekkeiNodeSummary {
+  id: string;
+  glmId: string;
+  stratum: string;
+  title: string;
+  description: string;
+  revisionStatus: string;
+  systemRole?: string | null;
+  specKind?: string | null;
+}
+
+export interface ComponentSpecPayload {
+  component: SekkeiNodeSummary & { body: unknown; contentHash: string };
+  specPrompt: SekkeiNodeSummary & { body: unknown; contentHash: string };
+  specAcceptance: SekkeiNodeSummary & { body: unknown; contentHash: string };
+  outputs: Array<{ path: string; description?: string }>;
+  contextBundle: { text: string; bindingHash: string };
+  hardConstraints: string;
+  sourceDir: string | null;
+  promptTemplate: string;
+  verifierCommand: string;
+}
+
+export interface AcceptanceVerifyResult {
+  command: string;
+  cwd: string;
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  durationMs: number;
+}
+
+export interface RecordGenerationRequest {
+  componentId: string;
+  files: Array<{ path: string; sha256: string; bytes: number }>;
+  verifierExitCode: number;
+  bindingHash?: string;
+  generatorIdentity?: string;
+  durationMs?: number;
+  note?: string | null;
+}
+
+export interface ProvenanceEvent {
+  id: string;
+  workspaceId: string;
+  occurredAt: string;
+  subjectFile: string;
+  subjectDigest: string;
+  sekkeiRoot: string;
+  sekkeiRev: string;
+  bindingHash: string;
+  generatorLlm: string;
+  generatorPromptVersion: string;
+  durationMs: number;
+  note: string | null;
+}
+
 export interface NodeWithChildren {
   node: {
     id: string;
@@ -150,6 +207,17 @@ export class GlmClient {
   }
 
   /**
+   * PATCH /api/v1/workspaces/:id — partial update. v1 supports `sourceDir`.
+   * Used by `glm generate --source-dir` to persist the path before driving
+   * the spec / verifier / record-generation flow.
+   */
+  async setSourceDir(workspaceId: string, sourceDir: string): Promise<void> {
+    await this.send<unknown>('PATCH', `/api/v1/workspaces/${encodeURIComponent(workspaceId)}`, {
+      sourceDir,
+    });
+  }
+
+  /**
    * POST /api/v1/workspaces/import — create-or-update workspace from a sekkei
    * YAML document. The server creates the workspace if `slug` is new and
    * returns the import summary (inserted / updated / unchanged counts).
@@ -197,6 +265,51 @@ export class GlmClient {
       },
     );
     return result;
+  }
+
+  /**
+   * GET /api/v1/workspaces/:id/components/:glm_id/spec — composite endpoint
+   * that bundles component + spec.prompt + spec.acceptance + resolved
+   * context bundle + outputs[] + hard_constraints + source_dir. Used by
+   * the CLI's client-side generate flow (and by the MCP server).
+   */
+  async getComponentSpec(workspaceId: string, componentGlmId: string): Promise<ComponentSpecPayload> {
+    const { spec } = await this.get<{ spec: ComponentSpecPayload }>(
+      `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/components/${encodeURIComponent(componentGlmId)}/spec`,
+    );
+    return spec;
+  }
+
+  /**
+   * POST /api/v1/workspaces/:id/acceptance-verify — run a component's
+   * authoritative `spec.acceptance.verifier.command` in source_dir.
+   * Returns { command, cwd, exitCode, stdout, stderr, durationMs }.
+   */
+  async runAcceptanceVerify(
+    workspaceId: string,
+    componentGlmId: string,
+  ): Promise<AcceptanceVerifyResult> {
+    const { result } = await this.post<{ result: AcceptanceVerifyResult }>(
+      `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/acceptance-verify`,
+      { componentId: componentGlmId },
+    );
+    return result;
+  }
+
+  /**
+   * POST /api/v1/workspaces/:id/record-generation — attest a completed
+   * client-driven generation. Inserts provenance + audit; returns the
+   * inserted provenance.
+   */
+  async recordGeneration(
+    workspaceId: string,
+    req: RecordGenerationRequest,
+  ): Promise<ProvenanceEvent> {
+    const { provenance } = await this.post<{ provenance: ProvenanceEvent }>(
+      `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/record-generation`,
+      req,
+    );
+    return provenance;
   }
 
   /** GET /api/v1/workspaces/:id/nodes/:glm_id */
@@ -270,10 +383,10 @@ export class GlmClient {
   }
 
   private async send<T>(
-    method: 'POST' | 'PUT' | 'DELETE',
+    method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     path: string,
     body: unknown,
-    opts: { auth?: boolean },
+    opts: { auth?: boolean } = {},
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const headers: Record<string, string> = { Accept: 'application/json' };
