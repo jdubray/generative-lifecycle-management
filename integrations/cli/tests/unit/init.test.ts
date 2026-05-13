@@ -159,4 +159,82 @@ describe('glm init', () => {
       rmSync(tmp, { recursive: true, force: true });
     }
   });
+
+  test('--write-env=<path> creates the .env file with GLM_SOLO_TOKEN when missing', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'glm-init-'));
+    const cfg = join(tmp, 'config.json');
+    const env = join(tmp, '.env');
+    try {
+      const opts = makeOpts({ configPath: cfg, generateToken: () => 'e'.repeat(64) });
+      const exit = await runInit(parseCommandLine(['init', `--write-env=${env}`]), opts);
+      expect(exit).toBe(0);
+      const contents = readFileSync(env, 'utf8');
+      expect(contents).toContain(`GLM_SOLO_TOKEN=${'e'.repeat(64)}`);
+      expect((opts.stdout as StringStream).buffer).toContain('wrote GLM_SOLO_TOKEN');
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('--write-env appends GLM_SOLO_TOKEN to an existing .env that has no such line', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'glm-init-'));
+    const cfg = join(tmp, 'config.json');
+    const env = join(tmp, '.env');
+    try {
+      writeFileSync(env, 'PORT=3300\nNODE_ENV=development\n', 'utf8');
+      const opts = makeOpts({ configPath: cfg, generateToken: () => 'f'.repeat(64) });
+      const exit = await runInit(parseCommandLine(['init', `--write-env=${env}`]), opts);
+      expect(exit).toBe(0);
+      const contents = readFileSync(env, 'utf8');
+      expect(contents).toContain('PORT=3300');
+      expect(contents).toContain('NODE_ENV=development');
+      expect(contents).toContain(`GLM_SOLO_TOKEN=${'f'.repeat(64)}`);
+      expect((opts.stdout as StringStream).buffer).toContain('appended GLM_SOLO_TOKEN');
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('--write-env replaces an existing GLM_SOLO_TOKEN line in-place', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'glm-init-'));
+    const cfg = join(tmp, 'config.json');
+    const env = join(tmp, '.env');
+    try {
+      writeFileSync(
+        env,
+        'PORT=3300\nGLM_SOLO_TOKEN=stale-token-value\nNODE_ENV=development\n',
+        'utf8',
+      );
+      const opts = makeOpts({ configPath: cfg, generateToken: () => '9'.repeat(64) });
+      const exit = await runInit(parseCommandLine(['init', `--write-env=${env}`]), opts);
+      expect(exit).toBe(0);
+      const contents = readFileSync(env, 'utf8');
+      expect(contents).not.toContain('stale-token-value');
+      expect(contents).toContain(`GLM_SOLO_TOKEN=${'9'.repeat(64)}`);
+      // surrounding lines preserved
+      expect(contents).toContain('PORT=3300');
+      expect(contents).toContain('NODE_ENV=development');
+      expect((opts.stdout as StringStream).buffer).toContain('replaced GLM_SOLO_TOKEN');
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('--write-env without a value uses opts.defaultEnvPath', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'glm-init-'));
+    const cfg = join(tmp, 'config.json');
+    const env = join(tmp, 'default.env');
+    try {
+      const opts = makeOpts({
+        configPath: cfg,
+        generateToken: () => '7'.repeat(64),
+        defaultEnvPath: env,
+      });
+      const exit = await runInit(parseCommandLine(['init', '--write-env']), opts);
+      expect(exit).toBe(0);
+      expect(readFileSync(env, 'utf8')).toContain(`GLM_SOLO_TOKEN=${'7'.repeat(64)}`);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
 });

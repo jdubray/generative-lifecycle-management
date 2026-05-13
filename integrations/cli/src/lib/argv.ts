@@ -34,6 +34,7 @@ const VALUE_FLAGS = new Set<string>([
   'instruction-file',
   'from-dir',
   'source-dir',
+  'write-env',
 ]);
 
 export function parseCommandLine(argv: readonly string[]): ParsedArgs {

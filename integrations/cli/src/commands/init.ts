@@ -1,7 +1,7 @@
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { randomBytes } from 'node:crypto';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { CliError, CliUsageError } from '../lib/errors.ts';
 import type { ParsedArgs } from '../lib/argv.ts';
 
@@ -33,6 +33,8 @@ export interface RunInitOptions {
   configPath?: string;
   /** Random-token factory (tests). */
   generateToken?: () => string;
+  /** Override the default `.env` path for `--write-env` (tests). */
+  defaultEnvPath?: string;
 }
 
 export async function runInit(args: ParsedArgs, opts: RunInitOptions = {}): Promise<number> {
@@ -88,15 +90,71 @@ export async function runInit(args: ParsedArgs, opts: RunInitOptions = {}): Prom
     return 78;
   }
 
+  // Optionally prime the server's `.env` with GLM_SOLO_TOKEN so a fresh
+  // bootstrap is end-to-end working — no manual env-var step needed.
+  const writeEnvFlag = args.flags['write-env'];
+  if (writeEnvFlag) {
+    const envTarget =
+      typeof writeEnvFlag === 'string' && writeEnvFlag.length > 0
+        ? resolve(writeEnvFlag)
+        : opts.defaultEnvPath ?? resolve(process.cwd(), '.env');
+    try {
+      const action = writeSoloTokenToEnv(envTarget, token);
+      stdout.write(`glm init: ${action} GLM_SOLO_TOKEN in ${envTarget}\n`);
+    } catch (err) {
+      stderr.write(
+        `glm: wrote ${path} but failed to update ${envTarget}: ${(err as Error).message}\n`,
+      );
+      return 78;
+    }
+  }
+
   stdout.write(
-    `glm init: wrote ${path}\n\n` +
-      `To enable solo-mode auth on the server, set:\n\n` +
-      `  export GLM_SOLO_TOKEN=${token}\n\n` +
-      `Then start the server in another terminal:\n\n` +
-      `  bun run src/server/server.ts\n\n` +
+    `\nglm init: wrote ${path}\n\n` +
+      (writeEnvFlag
+        ? `Server-side GLM_SOLO_TOKEN is already set. Start the server:\n\n` +
+          `  bun run src/server/server.ts\n\n`
+        : `To enable solo-mode auth on the server, set:\n\n` +
+          `  export GLM_SOLO_TOKEN=${token}\n\n` +
+          `Then start the server in another terminal:\n\n` +
+          `  bun run src/server/server.ts\n\n` +
+          `(Tip: pass --write-env on a future 'glm init' to do this automatically.)\n\n`) +
       `The CLI picks up the token automatically from this config file.\n`,
   );
   return 0;
+}
+
+/**
+ * Append or replace the `GLM_SOLO_TOKEN=<token>` line in a `.env` file.
+ * Returns 'wrote', 'appended', or 'replaced' describing what happened, so
+ * the caller can render a precise message.
+ *
+ * Idempotent: re-running with the same token produces the same file.
+ */
+function writeSoloTokenToEnv(envPath: string, token: string): 'wrote' | 'appended' | 'replaced' {
+  const line = `GLM_SOLO_TOKEN=${token}`;
+  if (!existsSync(envPath)) {
+    mkdirSync(dirname(envPath), { recursive: true });
+    writeFileSync(envPath, `${line}\n`, 'utf8');
+    return 'wrote';
+  }
+  const existing = readFileSync(envPath, 'utf8');
+  const lines = existing.split(/\r?\n/);
+  let replaced = false;
+  const next = lines.map((l) => {
+    if (l.startsWith('GLM_SOLO_TOKEN=')) {
+      replaced = true;
+      return line;
+    }
+    return l;
+  });
+  if (replaced) {
+    writeFileSync(envPath, next.join('\n'), 'utf8');
+    return 'replaced';
+  }
+  const needsNewline = existing.length > 0 && !existing.endsWith('\n');
+  writeFileSync(envPath, `${existing}${needsNewline ? '\n' : ''}${line}\n`, 'utf8');
+  return 'appended';
 }
 
 // ---------------------------------------------------------------------- helpers
