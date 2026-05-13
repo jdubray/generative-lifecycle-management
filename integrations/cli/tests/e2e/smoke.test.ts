@@ -52,9 +52,16 @@ describe('glm CLI (phase 1)', () => {
   });
 
   test('not-yet-implemented commands exit 2 with a Phase reference', () => {
-    const r = runCli(['status']);
+    const r = runCli(['vibe']);
     expect(r.status).toBe(2);
     expect(r.stderr).toContain('not yet implemented');
     expect(r.stderr).toContain('Phase');
+  });
+
+  test('glm status against an unreachable port exits 69 (server unavailable)', () => {
+    // Port 1 is universally unreachable; the CLI must surface ServerUnreachableError → exit 69.
+    const r = runCli(['status', '--port=1']);
+    expect(r.status).toBe(69);
+    expect(r.stderr).toContain('GLM server not responding');
   });
 });

@@ -127,13 +127,14 @@ Each phase is one PR-sized chunk. Each ends with `bun test` green and a working 
 
 **Done when:** `bun run src/bin/glm.ts --help` prints the command table.
 
-### Phase 2 — HTTP client + config (`glm status`)
+### Phase 2 — HTTP client + config (`glm status`) ✅
 
-- `glm-client.ts`: typed wrappers for `GET /health`, `GET /workspaces/:id`, `GET /workspaces/:id/verify`.
-- Auth: reads `GLM_SOLO_TOKEN` from env or `~/.glm/config.json`; sends `Authorization: Bearer …`.
-- `glm status` command: probes server, prints workspace summary + verifier pass/fail counts.
+- `glm-client.ts`: typed wrappers for `GET /health`, `GET /workspaces/:id`, `GET /workspaces/:id/summary`. Injectable `fetch` for tests.
+- `config.ts`: 4-tier resolver (flags → env → `~/.glm/config.json` → defaults). Test-injectable file loader.
+- `errors.ts`: `CliError` hierarchy with sysexits-style exit codes (66/69/70/77/78).
+- `glm status` command: probes `/health`, then fetches `/workspaces/:id/summary`. Pretty text by default; `--json` for machine output. Degrades gracefully when summary returns 404/401.
 
-**Done when:** Against a running GLM server with a seeded workspace, `glm status` shows node counts.
+**Done when:** ~~Against a running GLM server with a seeded workspace, `glm status` shows node counts.~~ Done. 38 unit + e2e tests pass; CLI exits 69 against an unreachable server and prints a helpful pointer.
 
 ### Phase 3 — Claude CLI subprocess wrapper
 

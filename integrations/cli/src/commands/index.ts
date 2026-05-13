@@ -1,4 +1,5 @@
 import { runHelp, runVersion } from './help.ts';
+import { runStatus } from './status.ts';
 import type { ParsedArgs } from '../lib/argv.ts';
 
 /**
@@ -20,7 +21,7 @@ const COMMANDS: Record<string, CommandFn> = {
     runVersion();
     return 0;
   },
-  status: notYetImplemented('status', 2),
+  status: (args) => runStatus(args),
   vibe: notYetImplemented('vibe', 4),
   verify: notYetImplemented('verify', 5),
   generate: notYetImplemented('generate', 6),
