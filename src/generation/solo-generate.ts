@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, normalize, resolve, sep } from 'node:path';
@@ -14,6 +13,11 @@ import {
   type AcceptanceBody,
   type PromptBody,
 } from './component-spec.ts';
+import {
+  runAcceptanceVerifier,
+  type VerifierRunResult as SharedVerifierRunResult,
+  type VerifierRunner as SharedVerifierRunner,
+} from './acceptance-runner.ts';
 
 /**
  * Solo-mode code generation (docs/solo-mode-spec.md UC-02).
@@ -77,15 +81,8 @@ export interface ClaudeRunner {
   }): Promise<{ stdout: string; stderr: string }>;
 }
 
-export interface VerifierRunResult {
-  exitCode: number;
-  stdout: string;
-  stderr: string;
-}
-
-export interface VerifierRunner {
-  (opts: { command: string; cwd: string }): VerifierRunResult | Promise<VerifierRunResult>;
-}
+export type VerifierRunResult = SharedVerifierRunResult;
+export type VerifierRunner = SharedVerifierRunner;
 
 export interface SoloGenerateDeps {
   repos: {
@@ -251,7 +248,7 @@ export async function runSoloGenerate(
   });
 
   // 8. Run the verifier.
-  const verifierRunner = input.verifierRunner ?? defaultVerifierRunner;
+  const verifierRunner = input.verifierRunner ?? runAcceptanceVerifier;
   log('verifier_spawn', { command: verifierCommand, cwd: outputDir });
   const verifierStart = Date.now();
   const verifier = await verifierRunner({ command: verifierCommand, cwd: outputDir });
@@ -568,36 +565,6 @@ function defaultClaudeRunner(): ClaudeRunner {
   };
 }
 
-function defaultVerifierRunner(opts: { command: string; cwd: string }): Promise<VerifierRunResult> {
-  // The verifier command is a shell line (e.g. 'bun test test/*.test.ts').
-  // Execute via the platform shell so glob/redirection/composition work.
-  const shell = process.platform === 'win32' ? 'cmd' : 'sh';
-  const shellArg = process.platform === 'win32' ? '/c' : '-c';
-  return new Promise<VerifierRunResult>((resolve, reject) => {
-    let child;
-    try {
-      child = spawn(shell, [shellArg, opts.command], {
-        cwd: opts.cwd,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-    } catch (err) {
-      reject(err);
-      return;
-    }
-    const stdoutChunks: Buffer[] = [];
-    const stderrChunks: Buffer[] = [];
-    child.stdout?.on('data', (c: Buffer) => stdoutChunks.push(c));
-    child.stderr?.on('data', (c: Buffer) => stderrChunks.push(c));
-    child.on('error', (err) => reject(err));
-    child.on('exit', (code) => {
-      resolve({
-        exitCode: code ?? 1,
-        stdout: Buffer.concat(stdoutChunks).toString('utf8'),
-        stderr: Buffer.concat(stderrChunks).toString('utf8'),
-      });
-    });
-  });
-}
 
 function isMissingBinary(err: unknown): boolean {
   return err instanceof Error && (err as NodeJS.ErrnoException).code === 'ENOENT';
