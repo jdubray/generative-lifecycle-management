@@ -77,3 +77,84 @@ describe('GlmClient.getWorkspaceSummary', () => {
     );
   });
 });
+
+describe('GlmClient.listNodes', () => {
+  test('appends stratum query when supplied', async () => {
+    let seenUrl = '';
+    const client = new GlmClient({
+      baseUrl: 'http://localhost:3300',
+      token: 'tok',
+      fetch: fakeFetch((url) => {
+        seenUrl = url;
+        return new Response('{"nodes":[]}', { status: 200, headers: { 'content-type': 'application/json' } });
+      }),
+    });
+    await client.listNodes('ws-1', { stratum: 'component' });
+    expect(seenUrl).toBe('http://localhost:3300/api/v1/workspaces/ws-1/nodes?stratum=component');
+  });
+
+  test('omits query when stratum unspecified', async () => {
+    let seenUrl = '';
+    const client = new GlmClient({
+      baseUrl: 'http://localhost:3300',
+      token: 'tok',
+      fetch: fakeFetch((url) => {
+        seenUrl = url;
+        return new Response('{"nodes":[]}', { status: 200, headers: { 'content-type': 'application/json' } });
+      }),
+    });
+    await client.listNodes('ws-1');
+    expect(seenUrl).toBe('http://localhost:3300/api/v1/workspaces/ws-1/nodes');
+  });
+});
+
+describe('GlmClient.getNode', () => {
+  test('GETs the right path with encoded glm_id', async () => {
+    let seenUrl = '';
+    const client = new GlmClient({
+      baseUrl: 'http://localhost:3300',
+      token: 'tok',
+      fetch: fakeFetch((url) => {
+        seenUrl = url;
+        return new Response(
+          JSON.stringify({ node: { glmId: 'acme:web.shop' }, parameters: [], constraints: [], relationships: [] }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }),
+    });
+    const out = await client.getNode('ws-1', 'acme:web.shop');
+    expect(seenUrl).toBe('http://localhost:3300/api/v1/workspaces/ws-1/nodes/acme%3Aweb.shop');
+    expect(out.node.glmId).toBe('acme:web.shop');
+  });
+});
+
+describe('GlmClient.getComponentSpec', () => {
+  test('unwraps the {spec} envelope', async () => {
+    const payload = {
+      spec: {
+        component: { glmId: 'acme:c' },
+        specPrompt: { glmId: 'acme:c.spec.prompt' },
+        specAcceptance: { glmId: 'acme:c.spec.acceptance' },
+        outputs: [],
+        contextBundle: { text: '', bindingHash: 'sha256:000' },
+        hardConstraints: 'X',
+        sourceDir: null,
+        promptTemplate: '',
+        verifierCommand: 'true',
+      },
+    };
+    const client = new GlmClient({
+      baseUrl: 'http://localhost:3300',
+      token: 'tok',
+      fetch: fakeFetch(() =>
+        new Response(JSON.stringify(payload), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      ),
+    });
+    const out = await client.getComponentSpec('ws-1', 'acme:c');
+    expect(out.component.glmId).toBe('acme:c');
+    expect(out.verifierCommand).toBe('true');
+  });
+});
