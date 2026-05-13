@@ -1,0 +1,26 @@
+{
+  "name": "@glm/cli",
+  "version": "0.1.0-alpha.0",
+  "private": true,
+  "type": "module",
+  "description": "GLM Solo CLI — author and regenerate sekkeis from the terminal using Claude Code",
+  "bin": {
+    "glm": "./src/bin/glm.ts"
+  },
+  "scripts": {
+    "glm": "bun run src/bin/glm.ts",
+    "test": "bun test tests/unit tests/e2e",
+    "test:unit": "bun test tests/unit",
+    "test:e2e": "RUN_E2E=1 bun test tests/e2e",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write ."
+  },
+  "engines": {
+    "bun": ">=1.1.0"
+  },
+  "files": [
+    "src/",
+    "README.md",
+    "IMPLEMENTATION_PLAN.md"
+  ]
+}
