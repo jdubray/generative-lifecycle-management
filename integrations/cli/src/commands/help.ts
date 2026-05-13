@@ -21,8 +21,10 @@ COMMANDS
   refine --node <id> [--workspace <id>]
                           Interactively refine a node's body using Claude CLI.
 
-  init [--name <name>] [--port <port>]
-                          Bootstrap a new local workspace and emit a config file.
+  init [--name <name>] [--port <port>] [--token <hex>] [--force]
+                          Generate ~/.glm/config.json with a random GLM_SOLO_TOKEN.
+                          Set that token as an env var on the GLM server to enable
+                          solo-mode auth bypass.
 
   status [--workspace <id>]
                           Show sekkei node counts, verification status, last generation timestamp.

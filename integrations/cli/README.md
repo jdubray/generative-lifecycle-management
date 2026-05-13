@@ -51,12 +51,12 @@ glm --help
 | `glm --help` / `glm --version` | 1 | ✅ implemented |
 | `glm status` | 2 | ✅ implemented |
 | `glm vibe` | 4 | ✅ implemented |
+| `glm init` | 4.5 | ✅ implemented |
 | `glm vibe --from-dir <path>` | 7 | ⏳ planned |
 | `glm verify` | 5 | ⏳ planned |
 | `glm generate --component <id>` | 6 | ⏳ planned |
 | `glm refine --node <id>` | 8 | ⏳ planned |
 | `glm import-sekkei <file>` | 8 | ⏳ planned |
-| `glm init` | 8 | ⏳ planned |
 
 ---
 

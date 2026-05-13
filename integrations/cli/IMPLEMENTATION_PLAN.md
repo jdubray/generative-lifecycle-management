@@ -146,6 +146,29 @@ Each phase is one PR-sized chunk. Each ends with `bun test` green and a working 
 
 **Done when:** ~~Unit test using a mock `claude` script passes; "not on PATH" produces the spec'd error.~~ Done. 10 tests cover argv composition (--print, --model, --system-prompt-file), stdin/stdout round-trip (including 60 KB payloads), ClaudeCliNotFoundError, ClaudeCliFailedError on non-zero exit, and the timeout path.
 
+### Phase 4.5 — Solo-mode auth + `glm init` ✅ (mid-course re-order)
+
+Pulled out of Phase 6 after a mid-course review found that every previously-built
+command (`status`, `vibe`) was effectively non-functional against a live server
+without this piece.
+
+- `src/server/middleware/auth.ts` — new `via: 'solo-token'` Principal type;
+  `identify()` short-circuits at the top when `Authorization: Bearer <env GLM_SOLO_TOKEN>`
+  matches. Resolves to a find-or-created `solo` user (id `solo`, email `solo@glm.local`,
+  role `admin`). Idempotent across requests.
+- 4 new server tests covering match / no-match / unset-env / idempotent reuse.
+- `integrations/cli/src/commands/init.ts` — `glm init` writes `~/.glm/config.json`
+  with a randomly generated 64-char hex token. `--name`, `--port`, `--token`, and
+  `--force` flags supported. Surfaces the existing token when the file already
+  exists so the user can copy it to the server.
+- 8 CLI tests for init (generate, --port/--name overrides, --token validation,
+  --force, malformed existing file, missing parent dir).
+
+**Done when:** ~~Server-side auth bypass works against the new `solo` user; `glm init`
+generates a config that `glm status` can pick up automatically.~~ Done. End-to-end:
+`glm init` → set `GLM_SOLO_TOKEN` on server → `glm status` / `glm vibe` now work
+without any browser session.
+
 ### Phase 4 — Vibe design (UC-01) ✅
 
 - `src/lib/prompts.ts` — `buildVibeSystemPrompt`, `buildVibeUserPrompt`, `stripCodeFences`. The system prompt embeds the authoring skill verbatim plus (optionally) the sekkei JSON schema.

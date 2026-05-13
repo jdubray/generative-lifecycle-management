@@ -1,6 +1,7 @@
 import { runHelp, runVersion } from './help.ts';
 import { runStatus } from './status.ts';
 import { runVibe } from './vibe.ts';
+import { runInit } from './init.ts';
 import type { ParsedArgs } from '../lib/argv.ts';
 
 /**
@@ -28,7 +29,7 @@ const COMMANDS: Record<string, CommandFn> = {
   generate: notYetImplemented('generate', 6),
   refine: notYetImplemented('refine', 8),
   'import-sekkei': notYetImplemented('import-sekkei', 8),
-  init: notYetImplemented('init', 8),
+  init: (args) => runInit(args),
 };
 
 function notYetImplemented(name: string, phase: number): CommandFn {

@@ -115,4 +115,81 @@ describe('auth middleware', () => {
     });
     expect(res.status).toBe(401);
   });
+
+  // ---------- Solo-mode token (docs/solo-mode-spec.md §5.3) ----------
+
+  test('GLM_SOLO_TOKEN match short-circuits to the solo user', async () => {
+    const prev = process.env.GLM_SOLO_TOKEN;
+    process.env.GLM_SOLO_TOKEN = 'solo-test-token-abc';
+    try {
+      s = makeTestServer();
+      // The solo user is created on first authenticated request — not before.
+      expect(s.deps.repos.users.findById('solo')).toBeNull();
+
+      const res = await s.app.request('/api/v1/workspaces/ws-1/nodes', {
+        headers: { authorization: 'Bearer solo-test-token-abc' },
+      });
+      expect(res.status).toBe(200);
+
+      // Solo user now exists in the DB with admin role.
+      const solo = s.deps.repos.users.findById('solo');
+      expect(solo).not.toBeNull();
+      expect(solo?.email).toBe('solo@glm.local');
+      expect(solo?.role).toBe('admin');
+    } finally {
+      if (prev === undefined) delete process.env.GLM_SOLO_TOKEN;
+      else process.env.GLM_SOLO_TOKEN = prev;
+    }
+  });
+
+  test('GLM_SOLO_TOKEN is idempotent — second request reuses the user row', async () => {
+    const prev = process.env.GLM_SOLO_TOKEN;
+    process.env.GLM_SOLO_TOKEN = 'solo-test-token-xyz';
+    try {
+      s = makeTestServer();
+      await s.app.request('/api/v1/workspaces/ws-1/nodes', {
+        headers: { authorization: 'Bearer solo-test-token-xyz' },
+      });
+      const r2 = await s.app.request('/api/v1/workspaces/ws-1/nodes', {
+        headers: { authorization: 'Bearer solo-test-token-xyz' },
+      });
+      expect(r2.status).toBe(200);
+      // No duplicate rows — find by email also resolves.
+      expect(s.deps.repos.users.findByEmail('solo@glm.local')?.id).toBe('solo');
+    } finally {
+      if (prev === undefined) delete process.env.GLM_SOLO_TOKEN;
+      else process.env.GLM_SOLO_TOKEN = prev;
+    }
+  });
+
+  test('a non-matching bearer falls through to the API-token path', async () => {
+    const prev = process.env.GLM_SOLO_TOKEN;
+    process.env.GLM_SOLO_TOKEN = 'solo-real';
+    try {
+      s = makeTestServer();
+      const res = await s.app.request('/api/v1/workspaces/ws-1/nodes', {
+        headers: { authorization: 'Bearer not-the-solo-token' },
+      });
+      // No matching API token → 401, NOT 200 via the solo path.
+      expect(res.status).toBe(401);
+      expect(s.deps.repos.users.findById('solo')).toBeNull();
+    } finally {
+      if (prev === undefined) delete process.env.GLM_SOLO_TOKEN;
+      else process.env.GLM_SOLO_TOKEN = prev;
+    }
+  });
+
+  test('when GLM_SOLO_TOKEN is unset, no solo bypass even with a bearer', async () => {
+    const prev = process.env.GLM_SOLO_TOKEN;
+    delete process.env.GLM_SOLO_TOKEN;
+    try {
+      s = makeTestServer();
+      const res = await s.app.request('/api/v1/workspaces/ws-1/nodes', {
+        headers: { authorization: 'Bearer anything' },
+      });
+      expect(res.status).toBe(401);
+    } finally {
+      if (prev !== undefined) process.env.GLM_SOLO_TOKEN = prev;
+    }
+  });
 });
