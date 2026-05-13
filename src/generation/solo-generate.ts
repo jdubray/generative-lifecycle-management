@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, normalize, resolve, sep } from 'node:path';
@@ -71,12 +71,14 @@ export interface ClaudeRunner {
   }): Promise<{ stdout: string; stderr: string }>;
 }
 
+export interface VerifierRunResult {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
+
 export interface VerifierRunner {
-  (opts: { command: string; cwd: string }): {
-    exitCode: number;
-    stdout: string;
-    stderr: string;
-  };
+  (opts: { command: string; cwd: string }): VerifierRunResult | Promise<VerifierRunResult>;
 }
 
 export interface SoloGenerateDeps {
@@ -207,7 +209,7 @@ export async function runSoloGenerate(
 
   // 8. Run the verifier.
   const verifierRunner = input.verifierRunner ?? defaultVerifierRunner;
-  const verifier = verifierRunner({ command: verifierCommand, cwd: outputDir });
+  const verifier = await verifierRunner({ command: verifierCommand, cwd: outputDir });
 
   // 9. Record provenance (only on success, and not for dry-run).
   let provenance: ProvenanceEvent | null = null;
@@ -450,51 +452,111 @@ function aggregateDigest(files: Array<{ sha256: string }>): string {
 }
 
 // --- Default subprocess runners -------------------------------------------
+//
+// Both runners use async `spawn` rather than `spawnSync` so the Hono request
+// handler does NOT block Bun's event loop for the duration of the LLM call
+// (30-90s typical). With the sync version, Windows TCP would close the idle
+// client socket before the response could be written. Async spawn keeps the
+// loop turning and keep-alive frames flowing for the whole duration.
 
 function defaultClaudeRunner(): ClaudeRunner {
   return async ({ userText, systemPromptFile, model }) => {
-    const result = spawnSync('claude', ['--print', '--model', model, '--system-prompt-file', systemPromptFile], {
-      input: userText,
-      encoding: 'utf8',
-      maxBuffer: 16 * 1024 * 1024,
-    });
-    if (result.error) {
-      const e = result.error as NodeJS.ErrnoException;
-      if (e.code === 'ENOENT') {
-        throw new SoloGenerateError(
-          `claude CLI not found on PATH. Install Claude Code: https://claude.ai/code`,
-          503,
+    return await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+      let child;
+      try {
+        child = spawn(
+          'claude',
+          ['--print', '--model', model, '--system-prompt-file', systemPromptFile],
+          { stdio: ['pipe', 'pipe', 'pipe'] },
         );
+      } catch (err) {
+        if (isMissingBinary(err)) {
+          reject(missingClaudeError(err));
+        } else {
+          reject(err);
+        }
+        return;
       }
-      throw result.error;
-    }
-    if (result.status !== 0) {
-      throw new SoloGenerateError(
-        `claude CLI exited ${result.status}: ${(result.stderr ?? '').trim().slice(0, 500)}`,
-        502,
-      );
-    }
-    return { stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
+
+      const stdoutChunks: Buffer[] = [];
+      const stderrChunks: Buffer[] = [];
+      child.stdout?.on('data', (c: Buffer) => stdoutChunks.push(c));
+      child.stderr?.on('data', (c: Buffer) => stderrChunks.push(c));
+      child.stdin?.on('error', () => {
+        /* surfaced via 'error' / 'exit' below */
+      });
+      try {
+        child.stdin?.write(userText, 'utf8');
+        child.stdin?.end();
+      } catch {
+        // child died before reading stdin; the 'error' / 'exit' event handles it.
+      }
+
+      child.on('error', (err) => {
+        if (isMissingBinary(err)) {
+          reject(missingClaudeError(err));
+        } else {
+          reject(err);
+        }
+      });
+
+      child.on('exit', (code) => {
+        const stdout = Buffer.concat(stdoutChunks).toString('utf8');
+        const stderr = Buffer.concat(stderrChunks).toString('utf8');
+        if (code !== 0) {
+          reject(
+            new SoloGenerateError(
+              `claude CLI exited ${code}: ${stderr.trim().slice(0, 500)}`,
+              502,
+            ),
+          );
+          return;
+        }
+        resolve({ stdout, stderr });
+      });
+    });
   };
 }
 
-function defaultVerifierRunner(opts: { command: string; cwd: string }): {
-  exitCode: number;
-  stdout: string;
-  stderr: string;
-} {
-  // The verifier command may be a multi-token shell line — execute via the
-  // platform shell so users can write e.g. 'bun test test/*.test.ts'.
+function defaultVerifierRunner(opts: { command: string; cwd: string }): Promise<VerifierRunResult> {
+  // The verifier command is a shell line (e.g. 'bun test test/*.test.ts').
+  // Execute via the platform shell so glob/redirection/composition work.
   const shell = process.platform === 'win32' ? 'cmd' : 'sh';
   const shellArg = process.platform === 'win32' ? '/c' : '-c';
-  const result = spawnSync(shell, [shellArg, opts.command], {
-    cwd: opts.cwd,
-    encoding: 'utf8',
-    maxBuffer: 16 * 1024 * 1024,
+  return new Promise<VerifierRunResult>((resolve, reject) => {
+    let child;
+    try {
+      child = spawn(shell, [shellArg, opts.command], {
+        cwd: opts.cwd,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    } catch (err) {
+      reject(err);
+      return;
+    }
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+    child.stdout?.on('data', (c: Buffer) => stdoutChunks.push(c));
+    child.stderr?.on('data', (c: Buffer) => stderrChunks.push(c));
+    child.on('error', (err) => reject(err));
+    child.on('exit', (code) => {
+      resolve({
+        exitCode: code ?? 1,
+        stdout: Buffer.concat(stdoutChunks).toString('utf8'),
+        stderr: Buffer.concat(stderrChunks).toString('utf8'),
+      });
+    });
   });
-  return {
-    exitCode: result.status ?? 1,
-    stdout: result.stdout ?? '',
-    stderr: result.stderr ?? '',
-  };
+}
+
+function isMissingBinary(err: unknown): boolean {
+  return err instanceof Error && (err as NodeJS.ErrnoException).code === 'ENOENT';
+}
+
+function missingClaudeError(cause?: unknown): SoloGenerateError {
+  const detail = cause instanceof Error ? `: ${cause.message}` : '';
+  return new SoloGenerateError(
+    `claude CLI not found on PATH${detail}. Install Claude Code: https://claude.ai/code`,
+    503,
+  );
 }
