@@ -1,0 +1,29 @@
+{
+  "name": "@glm/mcp",
+  "version": "0.1.0-alpha.0",
+  "private": true,
+  "type": "module",
+  "description": "GLM MCP server — exposes sekkei + verifier + provenance operations as MCP tools for Claude Code",
+  "bin": {
+    "glm-mcp": "./src/bin/glm-mcp.ts"
+  },
+  "scripts": {
+    "glm-mcp": "bun run src/bin/glm-mcp.ts",
+    "test": "bun test tests/unit",
+    "test:unit": "bun test tests/unit",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write ."
+  },
+  "engines": {
+    "bun": ">=1.1.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.23.0"
+  },
+  "files": [
+    "src/",
+    "README.md",
+    "IMPLEMENTATION_PLAN.md"
+  ]
+}
