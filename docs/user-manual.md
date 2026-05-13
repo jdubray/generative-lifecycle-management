@@ -13,6 +13,7 @@
 5. [Creating a Change Request](#5-creating-a-change-request)
 6. [Creating a Variant](#6-creating-a-variant)
 7. [Reference: Roles and Permissions](#7-reference-roles-and-permissions)
+8. [Solo Mode CLI](#8-solo-mode-cli)
 
 ---
 
@@ -516,6 +517,209 @@ Use **Block** judiciously — a blocked node at an old revision accumulates tech
 | **guest** | Read-only access to the sekkei tree and dashboard |
 
 Roles are per-workspace. A user can be a contributor in one workspace and a guest in another.
+
+---
+
+## 8. Solo Mode CLI
+
+Solo mode is a first-class adoption path for individual developers. You run a local GLM server, you talk to it through the **`glm` CLI**, and **Claude Code** does the LLM work as a subprocess. No team, no shared server, no Anthropic API key in the server's environment — your `claude` CLI's own credentials are used.
+
+The CLI lives in `integrations/cli/` and is a separate project from the main repo. See `integrations/cli/README.md` and `integrations/cli/IMPLEMENTATION_PLAN.md` for the architecture.
+
+### 8.1 Prerequisites
+
+- **Bun** ≥ 1.1.0
+- **Claude Code CLI** on `PATH` (`claude --version` works)
+- A local checkout of this repo (the CLI reads `docs/sekkei-authoring.md` from disk at runtime)
+
+### 8.2 First-time bootstrap
+
+```bash
+cd integrations/cli && bun install
+bun link                       # makes `glm` available globally
+
+glm init                       # writes ~/.glm/config.json with a random
+                               # 64-char hex token (the GLM_SOLO_TOKEN)
+                               # → copy the export line it prints
+```
+
+In another terminal, start the server with the token set:
+
+```bash
+export GLM_SOLO_TOKEN=<paste from glm init>
+bun run src/server/server.ts
+```
+
+The server's auth middleware short-circuits on `Authorization: Bearer <GLM_SOLO_TOKEN>` and resolves to a `solo` admin user that is created on first request.
+
+Verify:
+
+```bash
+glm status                     # server line, node counts, last verifier run
+```
+
+### 8.3 Authoring a new sekkei (UC-01)
+
+```bash
+glm vibe \
+  --slug my-shop \
+  --namespace acme:web.shop \
+  --description "A multi-tenant catalog + cart store. Bun + Hono + bun:sqlite."
+```
+
+Under the hood the CLI:
+
+1. Loads `docs/sekkei-authoring.md` as Claude's system prompt.
+2. Spawns `claude --print` with your description.
+3. Captures the multi-document YAML response.
+4. POSTs it to `/api/v1/workspaces/import`, creating the workspace if `--slug` is new.
+5. Prints the import summary (insert/update/unchanged counts).
+
+Add `--out <file>` to dump the YAML to disk before importing — useful when debugging the prompt. Add `--dry-run` to skip the import. Add `--json` to emit machine-readable output (progress goes to stderr; the JSON line stays clean on stdout).
+
+### 8.4 Importing an existing sekkei file (UC bootstrap)
+
+```bash
+glm import-sekkei ./path/to/sekkei.yaml --slug my-shop
+```
+
+Posts the file to the same import endpoint. The file may be a single document or a `---`-separated multi-doc stream.
+
+### 8.5 Reverse-engineering an existing codebase (UC-04)
+
+```bash
+glm vibe \
+  --slug legacy-app \
+  --namespace acme:legacy.app \
+  --from-dir /path/to/code \
+  --description "Optional steering hint"      # optional in this mode
+```
+
+The CLI walks the directory, filters a default blocklist (`node_modules`, `.git`, `dist`, `build`, `.next`, `__pycache__`, `target`, `.venv`, etc.), and feeds Claude:
+
+- A capped file tree (up to 500 paths).
+- Up to 20 key file excerpts (200 lines each), prioritized: READMEs, manifests (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`), build configs, entry points (`src/index.*`, `src/main.*`), then any source under `src/`.
+
+Claude is told to read FSM states verbatim from source, honor actual ownership in boundaries, emit all six spec kinds per Component, and use `override_kind: net_new` everywhere.
+
+### 8.6 Verifying the sekkei (UC-03)
+
+```bash
+glm verify
+```
+
+Posts to `/api/v1/workspaces/:id/verify` and renders each of the six gates:
+
+```
+Verifier run run-1 @ 2026-05-12T12:00:00Z
+
+  ✓ gate 1: Envelope             pass
+  ✗ gate 2: Stratum hierarchy    FAIL
+      └ capability 'auth' has no composes-of into a System
+  ✓ gate 3: Role consistency     pass
+  …
+
+FAIL: 6/7 gates passed
+```
+
+Exit 0 on overall pass, 1 on any gate failure. `--verbose` shows the full issue list (default cap is 5 per gate); `--no-color` suppresses ANSI; `--json` emits the full run on one line.
+
+### 8.7 Generating code (UC-02)
+
+```bash
+glm generate \
+  --component acme:web.shop.catalog.product_repository \
+  --source-dir /abs/path/to/code
+```
+
+The server:
+
+1. Resolves the component's `spec.prompt` and `spec.acceptance` nodes.
+2. Builds a context bundle from `spec.prompt.body.context_bundle[]` (capped at ~100K tokens).
+3. Spawns `claude --print` with HARD CONSTRAINTS that require a multi-file delimited response (`=== FILE: <path> ===`).
+4. Validates every emitted path against `source_dir` (rejects absolute paths and `..` segments).
+5. Writes the files.
+6. Runs `spec.acceptance.body.verifier.command` with `cwd = source_dir`.
+7. On verifier exit 0: records a `provenance_events` row and returns the result.
+
+The output lists each written file with its byte count, the verifier exit code, and the provenance id:
+
+```
+Generated acme:web.shop.catalog.product_repository
+  output dir:  /abs/path/to/code
+  files:       2
+    └ src/repository.ts  (1234 bytes)
+    └ test/repository.test.ts  (567 bytes)
+  verifier:    PASS  (exit 0, 42000 ms total)
+  provenance:  prov-1
+```
+
+`--source-dir` is persisted on the workspace; subsequent `glm generate` calls don't need it. `--dry-run` writes to a staging dir and skips provenance.
+
+### 8.8 Refining a single node (UC-05)
+
+```bash
+glm refine \
+  --node acme:web.shop.catalog.product_repository \
+  --instruction "Add a search-by-title behavior using SQLite FTS5."
+```
+
+The CLI fetches the node, asks Claude for an RFC-6902 JSON-Patch over the body, applies it client-side, then does the standard lock → PUT → unlock dance. The system prompt forbids touching envelope fields (`id`, `stratum`, `revision`, `provenance`, `relationships`, `parameters`, `constraints`) — only the body changes.
+
+`--dry-run` prints the proposed ops without applying:
+
+```
+refine: dry-run — would apply 2 op(s):
+  add /behaviors/-
+  replace /title
+```
+
+You can also pass `--instruction-file path/to/longer-prompt.txt` for multi-line instructions.
+
+### 8.9 Configuration precedence
+
+The CLI resolves configuration from (highest to lowest priority):
+
+1. CLI flags (`--port`, `--workspace`, `--token`, `--model`).
+2. Environment variables (`PORT`, `GLM_WORKSPACE`, `GLM_SOLO_TOKEN`, `GLM_CLAUDE_MODEL`).
+3. `~/.glm/config.json`.
+4. Built-in defaults: `port=3000`, `workspace=default`, `model=claude-sonnet-4-6`.
+
+### 8.10 The full bootstrap loop
+
+The end-to-end happy path for a new project:
+
+```bash
+glm init                                          # token + config file
+export GLM_SOLO_TOKEN=<token shown above>
+bun run src/server/server.ts &                    # start server
+glm vibe --slug demo --namespace acme:web.shop \
+         --description "A multi-tenant store…"
+glm verify                                        # all 6 gates pass
+glm generate \
+  --component acme:web.shop.catalog.product_repository \
+  --source-dir /path/to/code
+# Files on disk; verifier green; provenance row written.
+glm refine \
+  --node acme:web.shop.catalog.product_repository \
+  --instruction "Add pagination."
+glm generate ...                                  # regenerate after refine
+```
+
+### 8.11 Exit codes
+
+The CLI uses BSD `sysexits.h`-style codes so shell scripts can branch deterministically:
+
+| Code | Meaning |
+|-----:|---------|
+| 0 | Success |
+| 1 | Unexpected error (unhandled exception) |
+| 64 | Usage error (missing required flag, bad value) |
+| 66 | Resource not found (workspace, node, file) |
+| 69 | GLM server unreachable, or `claude` binary not on PATH |
+| 70 | HTTP 5xx, malformed response, or internal failure |
+| 77 | Auth failure (401 / 403) |
+| 78 | Config error (malformed `~/.glm/config.json`, invalid value) |
 
 ---
 

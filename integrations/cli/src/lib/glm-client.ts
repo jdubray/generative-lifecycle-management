@@ -100,6 +100,26 @@ export interface SoloGenerateResult {
   durationMs: number;
 }
 
+export interface NodeWithChildren {
+  node: {
+    id: string;
+    glmId: string;
+    stratum: string;
+    title: string;
+    body: unknown;
+    contentHash: string;
+    revisionMajor: string;
+    revisionIteration: number;
+    revisionStatus: string;
+    overrideKind: string;
+    systemRole?: string | null;
+    specKind?: string | null;
+  };
+  parameters: unknown[];
+  constraints: unknown[];
+  relationships: unknown[];
+}
+
 export class GlmClient {
   public readonly baseUrl: string;
   private readonly token: string | undefined;
@@ -179,6 +199,40 @@ export class GlmClient {
     return result;
   }
 
+  /** GET /api/v1/workspaces/:id/nodes/:glm_id */
+  async getNode(workspaceId: string, glmId: string): Promise<NodeWithChildren> {
+    return this.get<NodeWithChildren>(
+      `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/nodes/${encodeURIComponent(glmId)}`,
+    );
+  }
+
+  /**
+   * PUT /api/v1/workspaces/:id/nodes/:glm_id — replace the node's body.
+   * Requires the caller to hold the soft-lock (acquire via `acquireLock` first).
+   */
+  async updateNode(workspaceId: string, glmId: string, input: Record<string, unknown>): Promise<NodeWithChildren['node']> {
+    const { node } = await this.put<{ node: NodeWithChildren['node'] }>(
+      `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/nodes/${encodeURIComponent(glmId)}`,
+      input,
+    );
+    return node;
+  }
+
+  /** POST /api/v1/workspaces/:id/nodes/:glm_id/lock */
+  async acquireLock(workspaceId: string, glmId: string): Promise<void> {
+    await this.post<unknown>(
+      `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/nodes/${encodeURIComponent(glmId)}/lock`,
+      {},
+    );
+  }
+
+  /** DELETE /api/v1/workspaces/:id/nodes/:glm_id/lock */
+  async releaseLock(workspaceId: string, glmId: string): Promise<void> {
+    await this.delete<unknown>(
+      `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/nodes/${encodeURIComponent(glmId)}/lock`,
+    );
+  }
+
   // --------------------------------------------------------------------- core
 
   private async get<T>(path: string, opts: { auth?: boolean } = {}): Promise<T> {
@@ -204,11 +258,26 @@ export class GlmClient {
   }
 
   private async post<T>(path: string, body: unknown, opts: { auth?: boolean } = {}): Promise<T> {
+    return this.send<T>('POST', path, body, opts);
+  }
+
+  private async put<T>(path: string, body: unknown, opts: { auth?: boolean } = {}): Promise<T> {
+    return this.send<T>('PUT', path, body, opts);
+  }
+
+  private async delete<T>(path: string, opts: { auth?: boolean } = {}): Promise<T> {
+    return this.send<T>('DELETE', path, undefined, opts);
+  }
+
+  private async send<T>(
+    method: 'POST' | 'PUT' | 'DELETE',
+    path: string,
+    body: unknown,
+    opts: { auth?: boolean },
+  ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
-    const headers: Record<string, string> = {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-    };
+    const headers: Record<string, string> = { Accept: 'application/json' };
+    if (body !== undefined) headers['Content-Type'] = 'application/json';
     if (opts.auth !== false && this.token) {
       headers.Authorization = `Bearer ${this.token}`;
     }
@@ -216,9 +285,9 @@ export class GlmClient {
     let response: Response;
     try {
       response = await this.fetchImpl(url, {
-        method: 'POST',
+        method,
         headers,
-        body: JSON.stringify(body),
+        body: body !== undefined ? JSON.stringify(body) : undefined,
       });
     } catch (err) {
       throw new ServerUnreachableError(this.baseUrl, err);
@@ -229,7 +298,14 @@ export class GlmClient {
       throw new HttpError(url, response.status, text);
     }
 
-    return (await response.json()) as T;
+    // DELETE responses may be empty.
+    const contentType = response.headers.get('content-type') ?? '';
+    if (!contentType.includes('application/json')) {
+      return undefined as unknown as T;
+    }
+    const text = await response.text();
+    if (text.length === 0) return undefined as unknown as T;
+    return JSON.parse(text) as T;
   }
 }
 

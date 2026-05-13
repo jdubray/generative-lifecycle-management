@@ -24,11 +24,15 @@ COMMANDS
                           runs the acceptance verifier, records provenance.
                           --source-dir is persisted on the workspace if provided.
 
-  import-sekkei <file.yaml> [--workspace <id>]
-                          Import a sekkei YAML file into the workspace.
+  import-sekkei <file.yaml> --slug <id> [--name <name>] [--dry-run] [--json]
+                          Import a (multi-document) sekkei YAML file into a
+                          workspace (creates the workspace if --slug is new).
 
-  refine --node <id> [--workspace <id>]
-                          Interactively refine a node's body using Claude CLI.
+  refine --node <glm-id> (--instruction <text> | --instruction-file <path>)
+         [--workspace <id>] [--dry-run] [--json]
+                          One-shot refine of a single node body via Claude. Claude
+                          returns a JSON-Patch; the CLI applies it client-side and
+                          lock-PUT-unlocks the node.
 
   init [--name <name>] [--port <port>] [--token <hex>] [--force]
                           Generate ~/.glm/config.json with a random GLM_SOLO_TOKEN.

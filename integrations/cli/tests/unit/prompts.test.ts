@@ -4,6 +4,9 @@ import {
   buildVibeUserPrompt,
   buildReverseEngineerSystemPrompt,
   buildReverseEngineerUserPrompt,
+  buildRefineSystemPrompt,
+  buildRefineUserPrompt,
+  parseJsonPatchResponse,
   stripCodeFences,
 } from '../../src/lib/prompts.ts';
 
@@ -127,6 +130,71 @@ describe('buildReverseEngineerUserPrompt', () => {
     });
     expect(prompt).toContain('Author hint:');
     expect(prompt).toContain('Focus on the auth subsystem.');
+  });
+});
+
+describe('buildRefineSystemPrompt', () => {
+  test('frames the task as JSON-Patch and lists allowed ops', () => {
+    const prompt = buildRefineSystemPrompt({ authoringSkill: '# skill stub' });
+    expect(prompt).toContain('JSON-Patch operations');
+    expect(prompt).toContain('SUPPORTED OPS: add, remove, replace, move');
+    expect(prompt).toContain('# skill stub');
+    expect(prompt).toContain('Output ONLY a JSON array');
+    // Envelope fields are off-limits:
+    expect(prompt).toContain('id, stratum, revision');
+  });
+});
+
+describe('buildRefineUserPrompt', () => {
+  test('embeds glmId, stratum, the node body, and instruction', () => {
+    const prompt = buildRefineUserPrompt({
+      glmId: 'acme:x.foo',
+      stratum: 'component',
+      nodeYaml: 'id: acme:x.foo\nbody:\n{ "behaviors": [] }',
+      instruction: 'add a search behavior',
+    });
+    expect(prompt).toContain("Refine the body of node 'acme:x.foo'");
+    expect(prompt).toContain('stratum: component');
+    expect(prompt).toContain('Refinement instruction:');
+    expect(prompt).toContain('add a search behavior');
+    expect(prompt).toContain('Output ONLY a JSON array');
+  });
+
+  test('includes ancestor summary when provided', () => {
+    const prompt = buildRefineUserPrompt({
+      glmId: 'a:b',
+      stratum: 'component',
+      nodeYaml: 'body: {}',
+      ancestorSummary: 'system: acme shop\ncapability: catalog',
+      instruction: 'x',
+    });
+    expect(prompt).toContain('Ancestor context:');
+    expect(prompt).toContain('system: acme shop');
+  });
+});
+
+describe('parseJsonPatchResponse', () => {
+  test('parses a bare JSON array', () => {
+    const r = parseJsonPatchResponse('[{"op":"add","path":"/a","value":1}]');
+    expect(r).toEqual([{ op: 'add', path: '/a', value: 1 }]);
+  });
+
+  test('unwraps {"patch": [...]}', () => {
+    const r = parseJsonPatchResponse('{"patch": [{"op":"add","path":"/a","value":1}]}');
+    expect(r).toEqual([{ op: 'add', path: '/a', value: 1 }]);
+  });
+
+  test('strips an outer ```json fence', () => {
+    const r = parseJsonPatchResponse('```json\n[{"op":"remove","path":"/x"}]\n```');
+    expect(r).toEqual([{ op: 'remove', path: '/x' }]);
+  });
+
+  test('throws on prose', () => {
+    expect(() => parseJsonPatchResponse('here you go: prose')).toThrow();
+  });
+
+  test('throws on a non-array, non-{patch:[]} object', () => {
+    expect(() => parseJsonPatchResponse('{"foo": 1}')).toThrow();
   });
 });
 

@@ -4,6 +4,8 @@ import { runVibe } from './vibe.ts';
 import { runInit } from './init.ts';
 import { runVerify } from './verify.ts';
 import { runGenerate } from './generate.ts';
+import { runImportSekkei } from './import-sekkei.ts';
+import { runRefine } from './refine.ts';
 import type { ParsedArgs } from '../lib/argv.ts';
 
 /**
@@ -29,8 +31,8 @@ const COMMANDS: Record<string, CommandFn> = {
   vibe: (args) => runVibe(args),
   verify: (args) => runVerify(args),
   generate: (args) => runGenerate(args),
-  refine: notYetImplemented('refine', 8),
-  'import-sekkei': notYetImplemented('import-sekkei', 8),
+  refine: (args) => runRefine(args),
+  'import-sekkei': (args) => runImportSekkei(args),
   init: (args) => runInit(args),
 };
 

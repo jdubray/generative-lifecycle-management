@@ -76,9 +76,97 @@ Use multi-document YAML (\`---\` separators) to emit all nodes in one response.
  * Returns the original text unchanged if it doesn't match a single outer fence.
  */
 export function stripCodeFences(text: string): string {
-  const fenced = /^\s*```(?:yaml|yml)?\s*\n([\s\S]*?)\n\s*```\s*$/;
+  // Accept any single-word language tag (yaml, yml, json, ts, …) or none.
+  const fenced = /^\s*```[a-zA-Z]*\s*\n([\s\S]*?)\n\s*```\s*$/;
   const m = text.match(fenced);
   return m && m[1] !== undefined ? m[1] : text;
+}
+
+// ---------------------------------------------------------------------------
+// UC-05 — refine a single node via JSON-Patch
+// ---------------------------------------------------------------------------
+
+const REFINE_SCAFFOLD = `You are refining one node of an existing sekkei. Your output MUST be a
+JSON array of RFC-6902 JSON-Patch operations targeting the node's \`body\`.
+
+OPERATING MODE: one-shot generation. Treat the refinement instruction as a
+complete brief. Do not request clarifications. Make reasonable assumptions
+and proceed.
+
+SUPPORTED OPS: add, remove, replace, move.
+
+ALLOWED ROOT: every operation's \`path\` MUST address something under the
+node body (e.g. \`/behaviors/2\`, \`/data_shapes/User/properties/email\`).
+Do NOT touch the node's envelope fields: id, stratum, revision, provenance,
+relationships, parameters, constraints.`;
+
+const REFINE_RULES = `HARD CONSTRAINTS:
+- Output ONLY a JSON array of patch ops. No prose, no markdown fences.
+- Every op object must have \`op\` and \`path\`; \`add\` / \`replace\` also need \`value\`; \`move\` also needs \`from\`.
+- Paths use RFC-6902 JSON Pointer syntax: \`/\`-separated, \`~0\` for \`~\`, \`~1\` for \`/\`.
+- Array append uses \`/-\` as the last segment.
+- Never refactor unrelated fields. Make the minimal set of ops the instruction implies.`;
+
+export interface RefineSystemPromptInput {
+  authoringSkill: string;
+}
+
+export function buildRefineSystemPrompt(input: RefineSystemPromptInput): string {
+  return [REFINE_SCAFFOLD, '\n\n--- AUTHORING SKILL (reference) ---\n', input.authoringSkill, '\n\n', REFINE_RULES, '\n'].join('');
+}
+
+export interface RefineUserPromptInput {
+  glmId: string;
+  stratum: string;
+  /** Full node YAML the developer is editing — id + envelope + body. */
+  nodeYaml: string;
+  /** Optional ancestor context (system / capability body summaries). */
+  ancestorSummary?: string;
+  /** The developer's refinement request. */
+  instruction: string;
+}
+
+export function buildRefineUserPrompt(input: RefineUserPromptInput): string {
+  const lines: string[] = [
+    `Refine the body of node '${input.glmId}' (stratum: ${input.stratum}).`,
+    '',
+    'Current node:',
+    input.nodeYaml,
+  ];
+  if (input.ancestorSummary && input.ancestorSummary.trim().length > 0) {
+    lines.push('');
+    lines.push('Ancestor context:');
+    lines.push(input.ancestorSummary);
+  }
+  lines.push('');
+  lines.push('Refinement instruction:');
+  lines.push(input.instruction);
+  lines.push('');
+  lines.push('Output ONLY a JSON array of RFC-6902 JSON-Patch operations targeting `body`.');
+  return lines.join('\n');
+}
+
+/**
+ * Parse Claude's response into a JSON-Patch array. Tolerant of:
+ *   - Outer markdown fences (```json … ```)
+ *   - Leading / trailing whitespace
+ *   - Optional `{"patch": [...]}` wrapping that some models emit
+ */
+export function parseJsonPatchResponse(text: string): unknown {
+  const stripped = stripCodeFences(text).trim();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stripped);
+  } catch (err) {
+    throw new Error(
+      `claude response is not valid JSON: ${(err as Error).message}. Raw: ${stripped.slice(0, 200)}…`,
+    );
+  }
+  if (Array.isArray(parsed)) return parsed;
+  if (parsed !== null && typeof parsed === 'object' && Array.isArray((parsed as { patch?: unknown }).patch)) {
+    return (parsed as { patch: unknown[] }).patch;
+  }
+  throw new Error(`claude response is not a JSON-Patch array (got ${typeof parsed})`);
 }
 
 // ---------------------------------------------------------------------------

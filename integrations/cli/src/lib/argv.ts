@@ -30,6 +30,8 @@ const VALUE_FLAGS = new Set<string>([
   'out',
   'description',
   'description-file',
+  'instruction',
+  'instruction-file',
   'from-dir',
   'source-dir',
 ]);

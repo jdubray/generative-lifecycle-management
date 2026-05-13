@@ -221,20 +221,40 @@ Deferred: SSE streaming. The LLM call is the long step; per-step progress would 
 
 **Done when:** ~~Pointing `glm vibe --from-dir` at the GLM repo itself produces a sekkei that maps the workbench + engine sub-systems.~~ Done at the unit-test boundary. 16 new tests: 9 scanner (ignore set, truncation caps, excerpt priority, line truncation) + 5 prompt-builder tests (skill embedding, rules visible, hint rendering, truncation annotation) + 2 vibe-command tests (path validation, prompt content). 129 CLI tests pass.
 
-### Phase 8 — Refine + remaining commands (UC-05)
+### Phase 8 — Refine + remaining commands (UC-05) ✅
 
-- `glm refine --node <id>`: reads the node, prompts for instruction, spawns Claude with refine prompt, applies returned JSON-Patch via `PATCH /workspaces/:id/nodes/:nodeId`.
-- `glm init [--name <name>] [--port <port>]`: scaffolds `~/.glm/config.json`, generates `GLM_SOLO_TOKEN`, optionally `bun run` the server in the foreground.
-- `glm import-sekkei <file.yaml>`: thin wrapper over the existing import endpoint.
+- `src/commands/import-sekkei.ts` — thin wrapper. Reads a YAML file from disk (positional arg), POSTs to the existing `/api/v1/workspaces/import` endpoint with `slug`, `name`, `documents[0]`. Prints insert/update/unchanged counts; `--json` for machine output.
 
-**Done when:** All commands in spec §3.2 are implemented; the user manual gets a "Solo CLI" section.
+- `src/lib/json-patch.ts` — minimal RFC-6902 apply. Supports `add`, `remove`, `replace`, `move` (the ops Claude actually emits); throws `JsonPatchError` for unsupported ops, invalid array indices, or missing paths. Operates on a `structuredClone` so the input is never mutated. ~140 LOC, no external deps.
 
-### Phase 9 — Polish
+- `src/commands/refine.ts` — UC-05 client-side flow:
+  1. GET node.
+  2. Build refine system prompt (forbids touching envelope fields) + user prompt (body + instruction).
+  3. Spawn Claude.
+  4. Parse JSON-Patch (tolerates outer fences and `{patch: […]}` wrapping).
+  5. Apply patch to a deep clone of `node.body`.
+  6. POST /lock → PUT /node (with `revisionIteration++`) → DELETE /lock. Best-effort lock release on PUT failure.
+  7. Print op summary + new content_hash.
+  `--dry-run` skips the lock/PUT and just prints what would change. `--json` emits the full result on one line.
 
-- Color output (`NO_COLOR` respected).
-- `--json` flag for machine-readable output on every command.
-- E2E test that spins up a real GLM server, runs vibe→verify→generate.
-- Publish to npm under `@glm/cli` (deferred; tag-only release first).
+- `prompts.ts` — `buildRefineSystemPrompt`, `buildRefineUserPrompt`, `parseJsonPatchResponse`. The system prompt explicitly lists allowed ops and forbids touching `id`, `stratum`, `revision`, `provenance`, `relationships`, `parameters`, `constraints` (body-only refinement).
+
+- `stripCodeFences` regex widened to accept any single-word language tag (was `yaml|yml` only) so it works for both UC-01 YAML and UC-05 JSON responses.
+
+**Done when:** ~~All commands in spec §3.2 are implemented; the user manual gets a "Solo CLI" section.~~ All commands implemented. 39 new tests: 15 json-patch + 7 import-sekkei + 9 refine + 8 new prompt-builder tests for refine + parseJsonPatchResponse. **168 CLI tests pass.**
+
+### Phase 9 — Polish (in-flight)
+
+Most polish items were already absorbed into earlier phases:
+
+- ✅ **Color output** — `src/lib/color.ts` from Phase 5. Used by `verify`, `generate`, `refine`. Respects `NO_COLOR`, `--no-color`, and `stream.isTTY`.
+- ✅ **`--json` everywhere** — `status` (P2), `vibe` (P4), `verify` (P5), `generate` (P6), `import-sekkei` (P8), `refine` (P8). `init` is the only command without it (its output is one-time setup instructions, not data).
+- ✅ **User manual section** — added to `docs/user-manual.md`.
+
+Still deferred (out of v0.1 scope):
+
+- E2E test spinning up a real GLM server + claude binary running vibe → verify → generate. Gated by `RUN_E2E=1`; would need a `claude` install fixture.
+- npm publish as `@glm/cli`. Path mostly mechanical (`bun build` to ESM, `package.json` files glob already in place) but blocked on packaging the authoring skill content — `findRepoRoot` currently expects a dev checkout.
 
 ## 6. Test strategy
 
