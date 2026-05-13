@@ -32,6 +32,14 @@ describe('buildVibeSystemPrompt', () => {
     expect(prompt).toContain('Output ONLY YAML');
     expect(prompt).toContain('No prose, no markdown fences');
   });
+
+  test('tells Claude it is in one-shot mode (no follow-up questions)', () => {
+    const prompt = buildVibeSystemPrompt({ authoringSkill: 'x' });
+    expect(prompt).toContain('OPERATING MODE: one-shot generation');
+    expect(prompt).toContain('do not ask follow-up questions');
+    // The skill's §1 elicitation steps must be explicitly waived.
+    expect(prompt).toContain('§1 elicitation steps DO NOT APPLY');
+  });
 });
 
 describe('buildVibeUserPrompt', () => {

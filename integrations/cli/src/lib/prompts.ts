@@ -18,6 +18,13 @@
 const VIBE_SCAFFOLD = `You are a sekkei author operating under the GLM methodology.
 Your output MUST be valid YAML conforming to the sekkei specification.
 
+OPERATING MODE: one-shot generation. Treat the user message as a complete
+authoring brief — there is no interactive channel. Do not request
+clarifications, do not ask follow-up questions, do not output any meta-
+commentary about the brief. Make reasonable assumptions and proceed.
+The authoring skill's §1 elicitation steps DO NOT APPLY in this mode;
+infer the answers from the user's description.
+
 The authoring skill that follows is loaded VERBATIM as your reference. Apply
 every section in order. Do not deviate from the conventions in §10.`;
 

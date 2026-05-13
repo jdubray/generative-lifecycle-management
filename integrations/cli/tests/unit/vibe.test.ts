@@ -82,7 +82,9 @@ describe('glm vibe', () => {
     );
     expect(exit).toBe(0);
     const out = (opts.io!.stdout as StringStream).buffer;
-    expect(out).toContain('invoking');
+    const err = (opts.io!.stderr as StringStream).buffer;
+    expect(err).toContain('invoking'); // progress on stderr
+    expect(out).not.toContain('invoking'); // not on stdout
     expect(out).toContain("imported into workspace 'acme-shop'");
     expect(out).toContain('inserted   2');
   });
@@ -259,10 +261,9 @@ describe('glm vibe', () => {
       opts,
     );
     const out = (opts.io!.stdout as StringStream).buffer;
-    // First line is the "invoking" pre-roll; the second is the JSON.
-    const jsonLine = out.split('\n').find((line) => line.startsWith('{'));
-    expect(jsonLine).toBeDefined();
-    const parsed = JSON.parse(jsonLine as string);
+    // With progress on stderr, stdout is exactly one JSON line for `--json`.
+    expect(out.trim().startsWith('{')).toBe(true);
+    const parsed = JSON.parse(out.trim());
     expect(parsed.workspaceId).toBe('ws-1');
   });
 });

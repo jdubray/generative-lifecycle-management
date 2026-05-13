@@ -108,7 +108,8 @@ export async function runVibe(args: ParsedArgs, opts: RunVibeOptions = {}): Prom
   const systemPromptFile = join(tmpDir, 'system-prompt.txt');
   try {
     writeFileSync(systemPromptFile, systemPrompt, 'utf8');
-    stdout.write(`vibe: invoking ${config.model} via claude CLI…\n`);
+    // Progress goes to stderr so `glm vibe --json | jq` stays parseable.
+    stderr.write(`vibe: invoking ${config.model} via claude CLI…\n`);
     const result = await claudeRunner({
       userText: userPrompt,
       systemPromptFile,
@@ -134,7 +135,7 @@ export async function runVibe(args: ParsedArgs, opts: RunVibeOptions = {}): Prom
   if (outFile) {
     try {
       writeFileSync(outFile, yaml, 'utf8');
-      stdout.write(`vibe: wrote generated sekkei to ${outFile}\n`);
+      stderr.write(`vibe: wrote generated sekkei to ${outFile}\n`);
     } catch (err) {
       stderr.write(`glm: failed to write --out ${outFile}: ${(err as Error).message}\n`);
       // fall through and still attempt the import
