@@ -26,6 +26,15 @@ const DRIFT_STATUSES: DriftStatus[] = ['Synced', 'Hash-Drifted', 'Live-Drifted',
 const STRATA: Stratum[] = ['system', 'capability', 'component', 'interaction', 'spec'];
 
 /**
+ * Resolve a workspace by UUID or slug. The `:id` path parameter in all
+ * workspace routes accepts either form so that `--workspace demo` and
+ * `--workspace 1543f3a2-...` both work at the CLI without a separate lookup.
+ */
+function resolveWorkspace(repos: AppEnv['Variables']['repos'], idOrSlug: string) {
+  return repos.workspaces.findById(idOrSlug) ?? repos.workspaces.findBySlug(idOrSlug) ?? null;
+}
+
+/**
  * Workspace metadata endpoints used by the PWA shell. Kept separate from the
  * domain-specific routes (nodes / scrs / etc.) so the frontend has a single
  * place to fetch "everything the topbar + dashboard need" on boot.
@@ -87,8 +96,8 @@ export function workspaceRoutes(): Hono<AppEnv> {
   app.patch('/workspaces/:id', async (c) => {
     requirePrincipal(c);
     const workspaceId = c.req.param('id');
-    const ws = c.var.repos.workspaces.findById(workspaceId);
-    if (!ws) throw httpError(404, `workspace ${workspaceId} not found`);
+    const ws = resolveWorkspace(c.var.repos, workspaceId);
+    if (!ws) throw httpError(404, `workspace '${workspaceId}' not found`);
 
     const body = (await c.req.json().catch(() => ({}))) as { sourceDir?: unknown };
     if (body.sourceDir !== undefined) {
@@ -105,11 +114,12 @@ export function workspaceRoutes(): Hono<AppEnv> {
     return c.json({ workspace: updated });
   });
 
-  // GET /workspaces/:id — single workspace record.
+  // GET /workspaces/:id — single workspace record. Accepts UUID or slug.
   app.get('/workspaces/:id', (c) => {
     requirePrincipal(c);
-    const ws = c.var.repos.workspaces.findById(c.req.param('id'));
-    if (!ws) throw httpError(404, `workspace ${c.req.param('id')} not found`);
+    const idOrSlug = c.req.param('id');
+    const ws = resolveWorkspace(c.var.repos, idOrSlug);
+    if (!ws) throw httpError(404, `workspace '${idOrSlug}' not found`);
     return c.json({ workspace: ws });
   });
 
@@ -117,8 +127,8 @@ export function workspaceRoutes(): Hono<AppEnv> {
   app.post('/workspaces/:id/git-remote', async (c) => {
     requirePrincipal(c);
     const id = c.req.param('id');
-    const ws = c.var.repos.workspaces.findById(id);
-    if (!ws) throw httpError(404, `workspace ${id} not found`);
+    const ws = resolveWorkspace(c.var.repos, id);
+    if (!ws) throw httpError(404, `workspace '${id}' not found`);
     if (ws.gitRemote) throw httpError(409, 'workspace already has a git remote; detach it first');
 
     const body = (await c.req.json().catch(() => ({}))) as {
@@ -157,8 +167,8 @@ export function workspaceRoutes(): Hono<AppEnv> {
   app.post('/workspaces/:id/git-sync', (c) => {
     requirePrincipal(c);
     const id = c.req.param('id');
-    const ws = c.var.repos.workspaces.findById(id);
-    if (!ws) throw httpError(404, `workspace ${id} not found`);
+    const ws = resolveWorkspace(c.var.repos, id);
+    if (!ws) throw httpError(404, `workspace '${id}' not found`);
     if (!ws.gitRemote || !ws.gitCloneDir || !ws.gitCommit) {
       throw httpError(409, 'workspace has no git remote attached');
     }
@@ -185,8 +195,8 @@ export function workspaceRoutes(): Hono<AppEnv> {
   app.get('/workspaces/:id/git-conflicts', (c) => {
     requirePrincipal(c);
     const id = c.req.param('id');
-    const ws = c.var.repos.workspaces.findById(id);
-    if (!ws) throw httpError(404, `workspace ${id} not found`);
+    const ws = resolveWorkspace(c.var.repos, id);
+    if (!ws) throw httpError(404, `workspace '${id}' not found`);
     return c.json({ conflicts: c.var.repos.workspaceConflicts.listOpen(id) });
   });
 
@@ -194,8 +204,8 @@ export function workspaceRoutes(): Hono<AppEnv> {
   app.delete('/workspaces/:id/git-remote', (c) => {
     requirePrincipal(c);
     const id = c.req.param('id');
-    const ws = c.var.repos.workspaces.findById(id);
-    if (!ws) throw httpError(404, `workspace ${id} not found`);
+    const ws = resolveWorkspace(c.var.repos, id);
+    if (!ws) throw httpError(404, `workspace '${id}' not found`);
     if (!ws.gitRemote) throw httpError(409, 'workspace has no git remote attached');
 
     c.var.repos.workspaces.detachGit(id);
@@ -203,11 +213,13 @@ export function workspaceRoutes(): Hono<AppEnv> {
   });
 
   // GET /workspaces/:id/summary — aggregated counts for the Dashboard view.
+  // Accepts UUID or slug so `glm status --workspace demo` works without
+  // first looking up the workspace UUID.
   app.get('/workspaces/:id/summary', (c) => {
     requirePrincipal(c);
     const id = c.req.param('id');
-    const ws = c.var.repos.workspaces.findById(id);
-    if (!ws) throw httpError(404, `workspace ${id} not found`);
+    const ws = resolveWorkspace(c.var.repos, id);
+    if (!ws) throw httpError(404, `workspace '${id}' not found`);
 
     const nodesByStratum = Object.fromEntries(
       STRATA.map((s) => [s, c.var.repos.nodes.listByWorkspaceStratum(id, s).length]),

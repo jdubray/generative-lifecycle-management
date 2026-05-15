@@ -32,19 +32,24 @@ export interface Workspace {
   createdAt?: string;
 }
 
+/**
+ * Shape of `GET /api/v1/workspaces/:id/summary`. Mirrors the nested payload
+ * the server emits (see src/server/routes/workspaces.ts) — keep in sync.
+ */
 export interface WorkspaceSummary {
   workspace: Workspace;
-  nodesByStratum: Record<string, number>;
-  scrsByStatus: Record<string, number>;
-  driftByStatus: Record<string, number>;
-  tokens?: { in: number; out: number; hits: number; misses: number };
-  lastVerifier?: {
-    id: string;
-    passed: boolean;
-    completedAt: string;
-    gateCount: number;
-    passCount: number;
-  } | null;
+  nodes: { total: number; byStratum: Record<string, number> };
+  scrs: { active: number; byStatus: Record<string, number> };
+  drift: { drifted: number; byStatus: Record<string, number> };
+  generation: {
+    eventsConsidered: number;
+    tokensIn: number;
+    tokensOut: number;
+    cacheHits: number;
+    cacheMisses: number;
+  };
+  verifier: { id: string; ts: string; overallPass: boolean } | null;
+  activity?: unknown[];
 }
 
 export interface ImportSekkeiRequest {
@@ -191,6 +196,12 @@ export class GlmClient {
   /** Unauthenticated server probe. Returns `null` if the server isn't reachable. */
   async health(): Promise<HealthResponse> {
     return this.get<HealthResponse>('/api/v1/health', { auth: false });
+  }
+
+  /** List all workspaces the caller belongs to. Requires auth. */
+  async listWorkspaces(): Promise<Workspace[]> {
+    const { workspaces } = await this.get<{ workspaces: Workspace[] }>('/api/v1/workspaces');
+    return workspaces;
   }
 
   /** Workspace existence + identity. Requires auth. */

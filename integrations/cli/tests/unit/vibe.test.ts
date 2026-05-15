@@ -349,6 +349,180 @@ describe('glm vibe', () => {
     }
   });
 
+  // P1-C regression tests — non-empty workspace guard
+
+  function fakeClientWithWorkspaces(opts: {
+    workspaces?: Array<{ id: string; slug: string; name: string }>;
+    summaryNodeCount?: number;
+    importImpl?: () => Promise<ImportSekkeiResult>;
+  }): GlmClient {
+    const client = Object.create(GlmClient.prototype) as GlmClient;
+    const workspaces = opts.workspaces ?? [];
+    const summary = {
+      workspace: { id: 'ws-1', slug: 'acme-shop', name: 'Acme Shop' },
+      nodes: { total: opts.summaryNodeCount ?? 0, byStratum: {} },
+      scrs: { active: 0, byStatus: {} },
+      drift: { drifted: 0, byStatus: {} },
+      generation: { eventsConsidered: 0, tokensIn: 0, tokensOut: 0, cacheHits: 0, cacheMisses: 0 },
+      verifier: null,
+    };
+    Object.assign(client, {
+      listWorkspaces: async () => workspaces,
+      getWorkspaceSummary: async () => summary,
+      importSekkei: opts.importImpl ?? (() => Promise.resolve(IMPORT_OK)),
+    });
+    return client;
+  }
+
+  test('P1-C: refuses to import into a non-empty workspace without --force', async () => {
+    const opts = makeOpts({
+      clientFactory: () =>
+        fakeClientWithWorkspaces({
+          workspaces: [{ id: 'ws-1', slug: 'acme-shop', name: 'Acme Shop' }],
+          summaryNodeCount: 50,
+        }),
+      claudeRunner: fakeClaude(SAMPLE_YAML),
+    });
+    const exit = await runVibe(
+      parseCommandLine([
+        'vibe',
+        '--slug=acme-shop',
+        '--namespace=acme:web.shop',
+        '--description=desc',
+      ]),
+      opts,
+    );
+    expect(exit).toBe(1);
+    const err = (opts.io!.stderr as StringStream).buffer;
+    expect(err).toContain("workspace 'acme-shop' already has 50 nodes");
+    expect(err).toContain('--force');
+  });
+
+  test('P1-C: --force allows merging into a non-empty workspace with a warning', async () => {
+    let importCalled = false;
+    const opts = makeOpts({
+      clientFactory: () =>
+        fakeClientWithWorkspaces({
+          workspaces: [{ id: 'ws-1', slug: 'acme-shop', name: 'Acme Shop' }],
+          summaryNodeCount: 50,
+          importImpl: async () => {
+            importCalled = true;
+            return IMPORT_OK;
+          },
+        }),
+      claudeRunner: fakeClaude(SAMPLE_YAML),
+    });
+    const exit = await runVibe(
+      parseCommandLine([
+        'vibe',
+        '--slug=acme-shop',
+        '--namespace=acme:web.shop',
+        '--description=desc',
+        '--force',
+      ]),
+      opts,
+    );
+    expect(exit).toBe(0);
+    expect(importCalled).toBe(true);
+    const err = (opts.io!.stderr as StringStream).buffer;
+    expect(err).toContain('50 nodes');
+    expect(err).toContain('merging (--force)');
+  });
+
+  test('P1-C: imports without guard when target workspace is empty', async () => {
+    let importCalled = false;
+    const opts = makeOpts({
+      clientFactory: () =>
+        fakeClientWithWorkspaces({
+          workspaces: [{ id: 'ws-1', slug: 'acme-shop', name: 'Acme Shop' }],
+          summaryNodeCount: 0,
+          importImpl: async () => {
+            importCalled = true;
+            return IMPORT_OK;
+          },
+        }),
+      claudeRunner: fakeClaude(SAMPLE_YAML),
+    });
+    const exit = await runVibe(
+      parseCommandLine([
+        'vibe',
+        '--slug=acme-shop',
+        '--namespace=acme:web.shop',
+        '--description=desc',
+      ]),
+      opts,
+    );
+    expect(exit).toBe(0);
+    expect(importCalled).toBe(true);
+    const err = (opts.io!.stderr as StringStream).buffer;
+    expect(err).not.toContain('already has');
+  });
+
+  test('P1-C: imports without guard when slug does not yet exist', async () => {
+    let importCalled = false;
+    const opts = makeOpts({
+      clientFactory: () =>
+        fakeClientWithWorkspaces({
+          workspaces: [], // no existing workspaces
+          importImpl: async () => {
+            importCalled = true;
+            return IMPORT_OK;
+          },
+        }),
+      claudeRunner: fakeClaude(SAMPLE_YAML),
+    });
+    const exit = await runVibe(
+      parseCommandLine([
+        'vibe',
+        '--slug=brand-new',
+        '--namespace=acme:web.shop',
+        '--description=desc',
+      ]),
+      opts,
+    );
+    expect(exit).toBe(0);
+    expect(importCalled).toBe(true);
+  });
+
+  test('P1-C: --dry-run skips the workspace guard entirely', async () => {
+    // dry-run must not call listWorkspaces (no auth needed in dry-run scenarios).
+    let listCalled = false;
+    const opts = makeOpts({
+      clientFactory: () => {
+        const client = Object.create(GlmClient.prototype) as GlmClient;
+        Object.assign(client, {
+          listWorkspaces: async () => {
+            listCalled = true;
+            return [{ id: 'ws-1', slug: 'acme-shop', name: 'Acme Shop' }];
+          },
+          getWorkspaceSummary: async () => ({
+            workspace: { id: 'ws-1', slug: 'acme-shop', name: 'Acme Shop' },
+            nodes: { total: 99, byStratum: {} },
+            scrs: { active: 0, byStatus: {} },
+            drift: { drifted: 0, byStatus: {} },
+            generation: { eventsConsidered: 0, tokensIn: 0, tokensOut: 0, cacheHits: 0, cacheMisses: 0 },
+            verifier: null,
+          }),
+          importSekkei: async () => IMPORT_OK,
+        });
+        return client;
+      },
+      claudeRunner: fakeClaude(SAMPLE_YAML),
+    });
+    const exit = await runVibe(
+      parseCommandLine([
+        'vibe',
+        '--slug=acme-shop',
+        '--namespace=acme:web.shop',
+        '--description=desc',
+        '--dry-run',
+      ]),
+      opts,
+    );
+    expect(exit).toBe(0);
+    expect(listCalled).toBe(false);
+  });
+
   test('--json emits machine-readable result', async () => {
     const opts = makeOpts({
       clientFactory: () => fakeClient(),

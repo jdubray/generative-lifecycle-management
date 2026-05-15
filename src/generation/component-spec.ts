@@ -74,7 +74,9 @@ export const HARD_CONSTRAINTS = `HARD CONSTRAINTS:
 - Emit the files in the order listed in OUTPUTS below.
 - Do NOT emit files not listed in OUTPUTS.
 - Do NOT use absolute paths or '..' segments in file headers.
-- After the last file, stop. Do not append commentary.`;
+- After the last file, stop. Do not append commentary.
+- Do NOT emit \`as unknown as\`, \`as any\`, \`@ts-ignore\`, or \`@ts-expect-error\`. If types do not align, fix the types rather than suppressing the error.
+- In acceptance tests, mock every collaborator using its real exported interface type (e.g. \`const mock: RealServiceType = { ... }\`), never an inline shape or \`any\`.`;
 
 /** Bytes-soft-cap on resolved context bundle text — protects against runaway bundles. */
 export const CONTEXT_BUNDLE_BYTE_CAP = 400_000;

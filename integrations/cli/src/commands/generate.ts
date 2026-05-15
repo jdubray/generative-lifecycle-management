@@ -20,6 +20,7 @@ import {
   buildSystemPrompt,
   buildUserPrompt,
   GenerateError,
+  lintGeneratedFiles,
   parseMultiFileResponse,
   resolveSafePath,
 } from '../lib/generate-spec.ts';
@@ -229,6 +230,29 @@ export async function runGenerate(args: ParsedArgs, opts: RunGenerateOptions = {
       try { rmSync(outputDir, { recursive: true, force: true }); } catch { /* ignore */ }
     }
     return reportError(err, stderr);
+  }
+
+  // 5b. Lint generated files for interface-suppressing casts (P1-A).
+  // Any `as unknown as`, `as any`, `@ts-ignore`, or `@ts-expect-error` in a
+  // generated TS file is treated as a hard failure: the model noticed a type
+  // mismatch and papered over it rather than surfacing it, which turns a
+  // compile-time error into a silent runtime crash (see interface-hallucination-
+  // analysis.md §4). Fail here so the user sees the exact file + line, not a
+  // confusing runtime stack trace after wiring the components together.
+  const lintViolations = lintGeneratedFiles(parsed);
+  if (lintViolations.length > 0) {
+    stderr.write('generate: LINT FAILURE — interface-suppressing casts in generated output:\n');
+    for (const v of lintViolations) {
+      stderr.write(`  ${v.file}:${v.line}: [${v.pattern}]  ${v.text.slice(0, 120)}\n`);
+    }
+    stderr.write(
+      'These casts indicate a cross-component interface mismatch.\n' +
+      'See docs/interface-hallucination-analysis.md §Prevention approach 5.\n',
+    );
+    if (dryRun) {
+      try { rmSync(outputDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    }
+    return 70;
   }
 
   // 6. Run the acceptance verifier (skipped for dry-run since the staging

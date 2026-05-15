@@ -120,13 +120,34 @@ describe('GlmClient', () => {
     expect(headers['Content-Type']).toBe('application/json');
   });
 
+  test('listWorkspaces() GETs /api/v1/workspaces and returns the array', async () => {
+    const payload = {
+      workspaces: [
+        { id: 'ws-1', slug: 'acme-shop', name: 'Acme Shop' },
+        { id: 'ws-2', slug: 'demo', name: 'Demo' },
+      ],
+    };
+    const { fn, calls } = stubFetch(() => jsonResponse(200, payload));
+    const client = new GlmClient({ baseUrl: 'http://localhost:3000', token: 'tk', fetch: fn });
+    const result = await client.listWorkspaces();
+    expect(result).toHaveLength(2);
+    expect(result[0]?.slug).toBe('acme-shop');
+    expect(result[1]?.slug).toBe('demo');
+    expect(calls[0]?.url).toBe('http://localhost:3000/api/v1/workspaces');
+    expect(calls[0]?.init?.method).toBe('GET');
+    const headers = (calls[0]?.init?.headers ?? {}) as Record<string, string>;
+    expect(headers.Authorization).toBe('Bearer tk');
+  });
+
   test('getWorkspaceSummary URL-encodes the workspace id', async () => {
     const { fn, calls } = stubFetch(() =>
       jsonResponse(200, {
         workspace: { id: 'has spaces', slug: 'x', name: 'X' },
-        nodesByStratum: {},
-        scrsByStatus: {},
-        driftByStatus: {},
+        nodes: { total: 0, byStratum: {} },
+        scrs: { active: 0, byStatus: {} },
+        drift: { drifted: 0, byStatus: {} },
+        generation: { eventsConsidered: 0, tokensIn: 0, tokensOut: 0, cacheHits: 0, cacheMisses: 0 },
+        verifier: null,
       }),
     );
     const client = new GlmClient({ baseUrl: 'http://localhost:3000', fetch: fn });

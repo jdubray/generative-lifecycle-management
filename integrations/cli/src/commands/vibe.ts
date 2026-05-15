@@ -174,8 +174,35 @@ export async function runVibe(args: ParsedArgs, opts: RunVibeOptions = {}): Prom
     }
   }
 
-  // 5. Import.
+  // 5. Guard: refuse to merge into a non-empty workspace without --force.
+  const force = args.flags['force'] === true;
   const client = (opts.clientFactory ?? defaultClientFactory)(config);
+  if (!dryRun) {
+    try {
+      const workspaces = await client.listWorkspaces();
+      const existing = workspaces.find((w) => w.slug === (slug as string));
+      if (existing) {
+        const summary = await client.getWorkspaceSummary(existing.id);
+        if (summary.nodes.total > 0 && !force) {
+          stderr.write(
+            `glm: workspace '${slug as string}' already has ${summary.nodes.total} nodes.\n` +
+              `  Use --force to merge, or choose a different --slug.\n`,
+          );
+          return 1;
+        }
+        if (summary.nodes.total > 0) {
+          stderr.write(
+            `vibe: workspace '${slug as string}' already has ${summary.nodes.total} nodes — merging (--force).\n`,
+          );
+        }
+      }
+    } catch {
+      // Guard is best-effort: if listing fails (e.g. server unreachable), let
+      // importSekkei surface the real error with full context.
+    }
+  }
+
+  // 6. Import.
   let result: ImportSekkeiResult;
   try {
     result = await client.importSekkei({
@@ -188,7 +215,7 @@ export async function runVibe(args: ParsedArgs, opts: RunVibeOptions = {}): Prom
     return reportError(err, stderr);
   }
 
-  // 6. Report.
+  // 7. Report.
   if (config.json) {
     stdout.write(`${JSON.stringify(result)}\n`);
   } else {

@@ -30,7 +30,51 @@ export const HARD_CONSTRAINTS = `HARD CONSTRAINTS:
 - Emit the files in the order listed in OUTPUTS below.
 - Do NOT emit files not listed in OUTPUTS.
 - Do NOT use absolute paths or '..' segments in file headers.
-- After the last file, stop. Do not append commentary.`;
+- After the last file, stop. Do not append commentary.
+- Do NOT emit \`as unknown as\`, \`as any\`, \`@ts-ignore\`, or \`@ts-expect-error\`. If types do not align, fix the types rather than suppressing the error.
+- In acceptance tests, mock every collaborator using its real exported interface type (e.g. \`const mock: RealServiceType = { ... }\`), never an inline shape or \`any\`.`;
+
+// ---------------------------------------------------------------------------
+// Post-generation lint
+// ---------------------------------------------------------------------------
+
+export interface LintViolation {
+  file: string;
+  line: number;
+  pattern: string;
+  text: string;
+}
+
+const FORBIDDEN_PATTERNS: Array<{ re: RegExp; label: string }> = [
+  { re: /as\s+unknown\s+as\b/, label: 'as unknown as' },
+  { re: /as\s+any\b/, label: 'as any' },
+  { re: /\/\/\s*@ts-ignore\b/, label: '@ts-ignore' },
+  { re: /\/\/\s*@ts-expect-error\b/, label: '@ts-expect-error' },
+];
+
+/**
+ * Scan a set of generated files for interface-suppressing casts and
+ * directives. Returns one violation per matching line. Only applies to
+ * TypeScript files; other extensions are skipped.
+ */
+export function lintGeneratedFiles(
+  files: Array<{ path: string; content: string }>,
+): LintViolation[] {
+  const violations: LintViolation[] = [];
+  for (const f of files) {
+    if (!/\.(ts|tsx)$/.test(f.path)) continue;
+    const lines = f.content.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i] ?? '';
+      for (const { re, label } of FORBIDDEN_PATTERNS) {
+        if (re.test(line)) {
+          violations.push({ file: f.path, line: i + 1, pattern: label, text: line.trim() });
+        }
+      }
+    }
+  }
+  return violations;
+}
 
 export interface PromptInput {
   promptTemplate: string;
@@ -80,6 +124,28 @@ export interface ParsedFile {
 const FILE_HEADER_RE = /^===\s*FILE:\s*(.+?)\s*===\s*$/;
 
 /**
+ * Strip a single layer of markdown code-fence wrapping from a file body.
+ * Claude sometimes wraps each emitted file in ```lang … ``` despite the
+ * HARD_CONSTRAINTS forbidding it. We strip only when the body both opens
+ * and closes with a fence (the wrapping signature) — a stray ``` mid-file
+ * is left untouched, so a legitimately fenced doc isn't corrupted.
+ */
+export function stripCodeFence(content: string): string {
+  const lines = content.split('\n');
+  let start = 0;
+  let end = lines.length - 1;
+  while (start <= end && lines[start]?.trim() === '') start++;
+  while (end >= start && lines[end]?.trim() === '') end--;
+  if (start >= end) return content;
+  const opensFence = /^\s*```[\w.+-]*\s*$/.test(lines[start] ?? '');
+  const closesFence = /^\s*```\s*$/.test(lines[end] ?? '');
+  if (opensFence && closesFence) {
+    return lines.slice(start + 1, end).join('\n');
+  }
+  return content;
+}
+
+/**
  * Parse claude's multi-file response. Each file is prefixed by
  * `=== FILE: <path> ===\n`. Throws `GenerateError` when no markers
  * are emitted or when an emitted path is not in the expected set.
@@ -117,10 +183,13 @@ export function parseMultiFileResponse(stdout: string, expectedPaths: string[]):
     }
   }
 
-  return files.map((f) => ({
-    path: f.path,
-    content: f.content.endsWith('\n') ? f.content : `${f.content}\n`,
-  }));
+  return files.map((f) => {
+    const unfenced = stripCodeFence(f.content);
+    return {
+      path: f.path,
+      content: unfenced.endsWith('\n') ? unfenced : `${unfenced}\n`,
+    };
+  });
 }
 
 /**
