@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { isAbsolute, normalize, resolve, sep } from 'node:path';
 import type { NodeRepository } from '../repository/node-repository.ts';
 import type { WorkspaceRepository } from '../repository/workspace-repository.ts';
-import type { SekkeiNode } from '../types.ts';
+import type { NodeRelationship, SekkeiNode } from '../types.ts';
 
 /**
  * Shared component-spec resolution.
@@ -290,7 +290,14 @@ export function resolveComponentSpec(
   }
 
   const refs = Array.isArray(promptBody.context_bundle) ? promptBody.context_bundle : [];
-  const contextBundle = buildContextBundle(deps.nodes, workspaceId, refs);
+
+  // P2-A: automatically inject the functional + schema specs of every component
+  // this one depends-on or composes-of, so the model sees the real interface
+  // contracts rather than guessing them. Sibling refs are resolved from the
+  // component node's relationship edges; they complement (never replace) the
+  // explicit context_bundle refs in the sekkei.
+  const siblingRefs = resolveSiblingInterfaceRefs(componentFound.relationships);
+  const contextBundle = buildContextBundle(deps.nodes, workspaceId, refs, siblingRefs);
 
   return {
     component: componentFound.node,
@@ -313,44 +320,71 @@ export function resolveComponentSpec(
  * resolvable from the sekkei DB. Missing refs render an inline `# ref
  * 'X' not found` marker so the LLM can see them.
  *
- * Returns the joined text plus a binding hash over the resolved content
- * hashes (used by provenance to bind a generation to its inputs).
+ * `siblingRefs` (optional) are appended after the explicit refs under a
+ * distinct `DEPENDENCY INTERFACES` header. They are resolved the same way
+ * but missing siblings are silently omitted (not every dependency has a
+ * spec.functional / spec.schema yet).
+ *
+ * Returns the joined text plus a binding hash over ALL resolved content
+ * hashes — explicit refs first, then sibling refs.
  */
 export function buildContextBundle(
   nodes: NodeRepository,
   workspaceId: string,
   refs: string[],
+  siblingRefs: string[] = [],
 ): ContextBundle {
   const blocks: string[] = [];
   const digests: string[] = [];
   let bytesUsed = 0;
 
-  for (const ref of refs) {
+  const appendRef = (ref: string, missingAllowed: boolean): boolean => {
     if (
       ref.startsWith('pkg:') ||
       ref.startsWith('dep:') ||
       ref.startsWith('svc:') ||
       ref.startsWith('hw:')
     ) {
-      continue;
+      return true;
     }
     const found = nodes.findByGlmId(workspaceId, ref);
     if (!found) {
-      blocks.push(`# ref '${ref}' not found in workspace; skipping`);
-      continue;
+      if (!missingAllowed) blocks.push(`# ref '${ref}' not found in workspace; skipping`);
+      return true;
     }
     const body = JSON.stringify(found.node.body, null, 2);
     const block = `# ${ref}\n${body}\n`;
     const blockBytes = Buffer.byteLength(block, 'utf8');
     if (bytesUsed + blockBytes > CONTEXT_BUNDLE_BYTE_CAP) {
-      blocks.push(
-        `# context bundle truncated at ${CONTEXT_BUNDLE_BYTE_CAP} bytes; omitting remaining refs`,
-      );
-      break;
+      blocks.push(`# context bundle truncated at ${CONTEXT_BUNDLE_BYTE_CAP} bytes; omitting remaining refs`);
+      return false; // signal: stop iteration
     }
     bytesUsed += blockBytes;
     blocks.push(block);
     digests.push(found.node.contentHash);
+    return true;
+  };
+
+  for (const ref of refs) {
+    if (!appendRef(ref, false)) break;
+  }
+
+  // Sibling interface section — only emitted when there are resolvable siblings.
+  if (siblingRefs.length > 0) {
+    const siblingBlocks: string[] = [];
+    const saved = { bytesUsed, digestLen: digests.length };
+    for (const ref of siblingRefs) {
+      const before = blocks.length;
+      if (!appendRef(ref, true)) break;
+      if (blocks.length > before) siblingBlocks.push(blocks[blocks.length - 1]!);
+    }
+    // Only emit the header if at least one sibling resolved.
+    if (siblingBlocks.length > 0) {
+      // Insert the header before the sibling blocks in the output array.
+      const insertAt = blocks.length - siblingBlocks.length;
+      blocks.splice(insertAt, 0, '# DEPENDENCY INTERFACES (auto-resolved from depends-on / composes-of edges):');
+      void saved;
+    }
   }
 
   const bindingHash =
@@ -359,4 +393,30 @@ export function buildContextBundle(
       : `sha256:${createHash('sha256').update(digests.join('\n')).digest('hex')}`;
 
   return { text: blocks.join('\n'), bindingHash };
+}
+
+/**
+ * Derive the sibling interface spec glm_ids from a component's relationship
+ * edges. For each `depends-on` or `composes-of` target we request the
+ * `spec.functional` and `spec.schema` nodes of that component. The caller
+ * passes these to `buildContextBundle` as `siblingRefs`; missing ones are
+ * silently omitted there (the dependency may not yet have those spec kinds).
+ */
+export function resolveSiblingInterfaceRefs(relationships: NodeRelationship[]): string[] {
+  const refs: string[] = [];
+  for (const rel of relationships) {
+    if (rel.kind !== 'depends-on' && rel.kind !== 'composes-of') continue;
+    const target = rel.targetGlmId;
+    // Skip external refs — they have no spec nodes in the sekkei DB.
+    if (
+      target.startsWith('pkg:') ||
+      target.startsWith('dep:') ||
+      target.startsWith('svc:') ||
+      target.startsWith('hw:')
+    ) continue;
+    refs.push(`${target}.spec.functional`);
+    refs.push(`${target}.spec.schema`);
+  }
+  // De-duplicate in case the same target appears in multiple relationship kinds.
+  return [...new Set(refs)];
 }

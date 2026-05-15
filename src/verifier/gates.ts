@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type {
   NodeConstraint,
   NodeParameter,
@@ -37,6 +39,12 @@ export interface VerifierInput {
   nodes: NodeRecord[];
   /** Optional brief: list of (glm_id, expected stratum) pairs that MUST exist. */
   brief?: Array<{ glmId: string; stratum: Stratum; label?: string }>;
+  /**
+   * Absolute path to the workspace's generated source tree. When set, gate 7
+   * (integration check) runs `tsc --noEmit` to detect cross-component interface
+   * drift. When null/undefined the gate is skipped with `passed: true`.
+   */
+  sourceDir?: string | null;
 }
 
 export interface VerifierResult {
@@ -69,7 +77,7 @@ const REQUIRED_SPEC_KINDS_PER_COMPONENT = ['functional', 'technical', 'acceptanc
 // ---------------------------------------------------------------------------
 
 /** Run every gate in order and aggregate the result. */
-export function runGates(input: VerifierInput): VerifierResult {
+export function runGates(input: VerifierInput, spawnSync?: SpawnSyncFn): VerifierResult {
   const gates: GateResult[] = [
     gate1Envelope(input.nodes),
     gate2StratumHierarchy(input.nodes),
@@ -78,6 +86,7 @@ export function runGates(input: VerifierInput): VerifierResult {
     gate4BriefCoverage(input.nodes, input.brief),
     gate5SpecCoverage(input.nodes),
     gate6SpecQuality(input.nodes),
+    gate7IntegrationCheck(input.sourceDir, spawnSync),
   ];
   return { gates, overallPass: gates.every((g) => g.passed) };
 }
@@ -298,4 +307,97 @@ export function gate6SpecQuality(nodes: NodeRecord[]): GateResult {
     }
   }
   return { name: '6.spec_quality', passed: issues.length === 0, issues };
+}
+
+// ---------------------------------------------------------------------------
+// Gate 7: Cross-component integration check
+// ---------------------------------------------------------------------------
+
+/** Max number of tsc stderr lines included in the gate issues list. */
+const TSC_STDERR_LINE_LIMIT = 30;
+
+/** Injection point for `Bun.spawnSync` — overridden in unit tests. */
+export type SpawnSyncFn = (
+  cmd: string[],
+  opts: { cwd: string; stdout: 'pipe'; stderr: 'pipe' },
+) => { exitCode: number | null; stderr: Buffer | Uint8Array };
+
+/**
+ * Gate 7 runs `tsc --noEmit` over the workspace's generated source tree to
+ * detect cross-component interface drift — the class of bug where each
+ * component passes its own acceptance tests (which mock collaborators using
+ * the hallucinated interface) but the whole project fails to type-check when
+ * the real components are wired together.
+ *
+ * Prerequisites (all must hold or the gate is skipped with `passed: true`):
+ *   1. `sourceDir` is a non-empty string pointing at an existing directory.
+ *   2. `package.json` exists at `sourceDir`.
+ *   3. `tsconfig.json` exists at `sourceDir`.
+ *   4. `node_modules/.bin/tsc` exists (i.e. TypeScript is installed).
+ *
+ * When skipped, the issues list carries a single informational message so the
+ * caller can distinguish "gate ran and passed" from "gate did not run".
+ *
+ * `spawnSync` is injectable for unit tests; defaults to `Bun.spawnSync`.
+ * Exported for unit testing; normally called by `runGates`.
+ */
+export function gate7IntegrationCheck(
+  sourceDir: string | null | undefined,
+  spawnSync: SpawnSyncFn = Bun.spawnSync,
+): GateResult {
+  const name = '7.integration_check';
+
+  if (!sourceDir) {
+    return {
+      name,
+      passed: true,
+      issues: ['skipped: workspace has no source_dir configured'],
+    };
+  }
+
+  if (!existsSync(sourceDir)) {
+    return {
+      name,
+      passed: true,
+      issues: [`skipped: source_dir '${sourceDir}' does not exist on disk`],
+    };
+  }
+
+  const packageJson = join(sourceDir, 'package.json');
+  const tsconfigJson = join(sourceDir, 'tsconfig.json');
+  const tscBin = join(sourceDir, 'node_modules', '.bin', 'tsc');
+
+  const prereqIssues: string[] = [];
+  if (!existsSync(packageJson)) prereqIssues.push('missing package.json at source_dir');
+  if (!existsSync(tsconfigJson)) prereqIssues.push('missing tsconfig.json at source_dir');
+  if (!existsSync(tscBin)) prereqIssues.push('missing node_modules/.bin/tsc — run `bun install` or `npm install` first');
+
+  if (prereqIssues.length > 0) {
+    return { name, passed: false, issues: prereqIssues };
+  }
+
+  // Run tsc synchronously. The verifier is not on the hot path; a synchronous
+  // subprocess call is acceptable here. We cap stderr at TSC_STDERR_LINE_LIMIT
+  // lines to keep the gate result storable in the verification_runs JSON column.
+  const proc = spawnSync([tscBin, '--noEmit', '--noEmitOnError'], {
+    cwd: sourceDir,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+
+  if (proc.exitCode === 0) {
+    return { name, passed: true, issues: [] };
+  }
+
+  const stderrText = proc.stderr instanceof Buffer
+    ? proc.stderr.toString('utf8')
+    : new TextDecoder().decode(proc.stderr);
+  const lines = stderrText.split('\n').filter((l) => l.trim().length > 0);
+  const truncated = lines.length > TSC_STDERR_LINE_LIMIT;
+  const issues = lines.slice(0, TSC_STDERR_LINE_LIMIT);
+  if (truncated) {
+    issues.push(`... (${lines.length - TSC_STDERR_LINE_LIMIT} more errors truncated)`);
+  }
+
+  return { name, passed: false, issues };
 }

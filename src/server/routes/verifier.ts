@@ -18,6 +18,7 @@ export function verifierRoutes(): Hono<AppEnv> {
       {
         repos: {
           nodes: c.var.repos.nodes,
+          workspaces: c.var.repos.workspaces,
           verificationRuns: c.var.repos.verificationRuns,
           audit: c.var.repos.audit,
         },

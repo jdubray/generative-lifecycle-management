@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { AuditRepository } from '../repository/audit-repository.ts';
 import type { NodeRepository } from '../repository/node-repository.ts';
+import type { WorkspaceRepository } from '../repository/workspace-repository.ts';
 import type { VerificationRunRepository } from '../repository/verification-run-repository.ts';
 import type { VerificationRun } from '../types.ts';
 import { runGates, type NodeRecord, type VerifierInput } from './gates.ts';
@@ -20,6 +21,7 @@ import type { EventBus } from '../ws/event-bus.ts';
 export interface RunnerDeps {
   repos: {
     nodes: NodeRepository;
+    workspaces: WorkspaceRepository;
     verificationRuns: VerificationRunRepository;
     audit: AuditRepository;
   };
@@ -39,7 +41,8 @@ export async function runWorkspaceVerifier(
   opts: RunOptions,
 ): Promise<VerificationRun> {
   const records = loadRecords(deps, opts.workspaceId);
-  const result = runGates({ nodes: records, brief: opts.brief });
+  const workspace = deps.repos.workspaces.findById(opts.workspaceId);
+  const result = runGates({ nodes: records, brief: opts.brief, sourceDir: workspace?.sourceDir });
 
   const run = deps.repos.verificationRuns.insert({
     id: randomUUID(),
