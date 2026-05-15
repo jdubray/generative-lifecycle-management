@@ -131,6 +131,7 @@ export function runImport(deps: ImporterDeps, input: ImportInput): ImportSummary
         throw err;
       }
       for (const w of adapted.warnings) summary.warnings.push(`${file}: ${w}`);
+      for (const w of lintPromptNode(adapted.input)) summary.warnings.push(`${file}: ${w}`);
 
       const existing = deps.repos.nodes.findByGlmId(workspace.id, doc.id);
       if (existing) {
@@ -285,4 +286,44 @@ function findUserIdByEmail(users: UserRepository, email: string): string | null 
  */
 function computeIncomingHash(input: NodeInput): string {
   return contentHash(input.body);
+}
+
+// ---------------------------------------------------------------------------
+// P3-D: Prompt-authoring lint
+// ---------------------------------------------------------------------------
+
+/**
+ * Patterns that indicate a spec.prompt node is authoring instructions that
+ * belong in the harness (the verifier or acceptance gate), not in the LLM
+ * prompt itself. The model should never be told to "run the tests" or "check
+ * exit code 0" — that is gate 6 / spec.acceptance territory.
+ */
+const HARNESS_INCOMPATIBLE_PATTERNS: Array<{ re: RegExp; label: string }> = [
+  { re: /run\s+the\s+(test|verifier|acceptance)/i, label: 'instructs model to run verifier/tests' },
+  { re: /confirm\s+exit\s+code\s+0/i, label: 'instructs model to confirm exit code' },
+  { re: /check\s+the\s+output/i, label: 'instructs model to check test output' },
+  { re: /execute\s+the\s+(test|spec|verifier)/i, label: 'instructs model to execute tests' },
+  { re: /make\s+sure\s+(all\s+)?tests?\s+pass/i, label: 'instructs model to ensure tests pass' },
+  { re: /verify\s+that\s+(the\s+)?test/i, label: 'instructs model to verify tests' },
+];
+
+/**
+ * Lint a single imported node for harness-incompatible instructions. Only
+ * inspects `spec.prompt` nodes; all others return an empty array.
+ *
+ * Warnings are phrased as `"<glmId>: prompt-lint: <label> — use spec.acceptance instead"`.
+ */
+function lintPromptNode(input: NodeInput): string[] {
+  if (input.stratum !== 'spec' || input.specKind !== 'prompt') return [];
+  const body = input.body as Record<string, unknown>;
+  const textToSearch = JSON.stringify(body);
+  const warnings: string[] = [];
+  for (const { re, label } of HARNESS_INCOMPATIBLE_PATTERNS) {
+    if (re.test(textToSearch)) {
+      warnings.push(
+        `${input.glmId}: prompt-lint: ${label} — move verification logic to spec.acceptance`,
+      );
+    }
+  }
+  return warnings;
 }

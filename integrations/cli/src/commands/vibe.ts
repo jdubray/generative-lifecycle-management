@@ -228,6 +228,17 @@ export async function runVibe(args: ParsedArgs, opts: RunVibeOptions = {}): Prom
         (s.nodesRejected !== undefined ? `  rejected   ${s.nodesRejected}\n` : '') +
         (s.dryRun ? '  (dry-run — nothing committed)\n' : ''),
     );
+    // Surface prompt-lint warnings. These indicate spec.prompt nodes that
+    // contain harness-incompatible instructions (e.g. "run the tests").
+    const promptLintWarnings = (s.warnings as string[] | undefined ?? []).filter(
+      (w) => w.includes('prompt-lint:'),
+    );
+    if (promptLintWarnings.length > 0) {
+      stderr.write(`vibe: ${promptLintWarnings.length} prompt-lint warning(s) — use 'glm refine <node>' to fix:\n`);
+      for (const w of promptLintWarnings) {
+        stderr.write(`  ⚠ ${w}\n`);
+      }
+    }
   }
   return 0;
 }

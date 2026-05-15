@@ -284,6 +284,55 @@ describe('gate 6 — spec quality', () => {
     });
     expect(gate6SpecQuality([record(node)]).passed).toBe(false);
   });
+
+  // P3-A: scaffold spec_kind
+  test('scaffold with outputs + verifier passes gate 6', () => {
+    const node = mkNode('glm:component.x.spec_scaffold', {
+      stratum: 'spec',
+      specKind: 'scaffold',
+      body: { outputs: ['src/'], verifier: { command: 'bun test' } },
+    });
+    expect(gate6SpecQuality([record(node)]).passed).toBe(true);
+  });
+
+  test('scaffold missing outputs fails gate 6', () => {
+    const node = mkNode('glm:component.x.spec_scaffold', {
+      stratum: 'spec',
+      specKind: 'scaffold',
+      body: { verifier: { command: 'bun test' } },
+    });
+    const r = gate6SpecQuality([record(node)]);
+    expect(r.passed).toBe(false);
+    expect(r.issues.some((i) => i.includes('outputs'))).toBe(true);
+  });
+
+  test('scaffold missing verifier fails gate 6', () => {
+    const node = mkNode('glm:component.x.spec_scaffold', {
+      stratum: 'spec',
+      specKind: 'scaffold',
+      body: { outputs: ['src/'] },
+    });
+    const r = gate6SpecQuality([record(node)]);
+    expect(r.passed).toBe(false);
+    expect(r.issues.some((i) => i.includes('verifier'))).toBe(true);
+  });
+
+  test('scaffold is NOT required by gate 5 (optional per component)', () => {
+    const comp = mkNode('glm:component.x', { stratum: 'component' });
+    const specs = (['functional', 'technical', 'acceptance', 'prompt'] as const).map((sk) =>
+      mkNode(`glm:component.x.spec_${sk}`, {
+        stratum: 'spec',
+        specKind: sk,
+        body: sk === 'acceptance'
+          ? { deliverables: [], verifier: 'cmd' }
+          : sk === 'prompt'
+            ? { context_bundle: 'cb', outputs: [], verifier: 'cmd' }
+            : {},
+      }),
+    );
+    // No scaffold node — should still pass gate 5
+    expect(gate5SpecCoverage([record(comp), ...specs.map(record)]).passed).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -302,6 +351,7 @@ describe('runGates', () => {
         '4.brief_coverage',
         '5.spec_coverage',
         '6.spec_quality',
+        '7.integration_check',
       ].sort(),
     );
   });

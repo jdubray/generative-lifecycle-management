@@ -305,6 +305,11 @@ export function gate6SpecQuality(nodes: NodeRecord[]): GateResult {
         if (!(key in body)) issues.push(`${r.node.glmId}: prompt missing body.${key}`);
       }
     }
+    if (sk === 'scaffold') {
+      for (const key of ['outputs', 'verifier']) {
+        if (!(key in body)) issues.push(`${r.node.glmId}: scaffold missing body.${key}`);
+      }
+    }
   }
   return { name: '6.spec_quality', passed: issues.length === 0, issues };
 }

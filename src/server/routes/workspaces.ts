@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { isAbsolute } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { exportWorkspaceResolved } from '../../import/export.ts';
 import { type AppEnv, requirePrincipal } from '../middleware/auth.ts';
 import { httpError } from '../middleware/error.ts';
 import { attachRemote, syncFromRemote } from '../../git/sekkei-git-service.ts';
@@ -272,6 +273,24 @@ export function workspaceRoutes(): Hono<AppEnv> {
           }
         : null,
       activity,
+    });
+  });
+
+  // GET /workspaces/:id/export — export all nodes as multi-document YAML.
+  // Each node becomes one YAML document separated by ---. The output can be
+  // re-imported via POST /workspaces/import or `glm import-sekkei`.
+  // Accepts UUID or slug so `glm export-sekkei --workspace demo` works.
+  app.get('/workspaces/:id/export', (c) => {
+    requirePrincipal(c);
+    const id = c.req.param('id');
+    const ws = resolveWorkspace(c.var.repos, id);
+    if (!ws) throw httpError(404, `workspace '${id}' not found`);
+
+    const docs = exportWorkspaceResolved(c.var.repos.nodes, ws.id);
+    const yaml = docs.map((d) => `---\n${d.content}`).join('');
+
+    return new Response(yaml, {
+      headers: { 'Content-Type': 'text/yaml; charset=utf-8' },
     });
   });
 

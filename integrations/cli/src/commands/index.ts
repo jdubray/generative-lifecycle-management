@@ -5,6 +5,7 @@ import { runInit } from './init.ts';
 import { runVerify } from './verify.ts';
 import { runGenerate } from './generate.ts';
 import { runImportSekkei } from './import-sekkei.ts';
+import { runExport } from './export-sekkei.ts';
 import { runRefine } from './refine.ts';
 import type { ParsedArgs } from '../lib/argv.ts';
 
@@ -33,6 +34,7 @@ const COMMANDS: Record<string, CommandFn> = {
   generate: (args) => runGenerate(args),
   refine: (args) => runRefine(args),
   'import-sekkei': (args) => runImportSekkei(args),
+  'export-sekkei': (args) => runExport(args),
   init: (args) => runInit(args),
 };
 

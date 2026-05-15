@@ -323,6 +323,27 @@ export class GlmClient {
     return provenance;
   }
 
+  /**
+   * GET /api/v1/workspaces/:id/export — export all nodes as multi-document YAML.
+   * Returns the raw YAML text (Content-Type: text/yaml). Requires auth.
+   */
+  async exportWorkspace(workspaceId: string): Promise<string> {
+    const url = `${this.baseUrl}/api/v1/workspaces/${encodeURIComponent(workspaceId)}/export`;
+    const headers: Record<string, string> = { Accept: 'text/yaml' };
+    if (this.token) headers.Authorization = `Bearer ${this.token}`;
+    let response: Response;
+    try {
+      response = await this.fetchImpl(url, { method: 'GET', headers });
+    } catch (err) {
+      throw new ServerUnreachableError(this.baseUrl, err);
+    }
+    if (!response.ok) {
+      const body = await safeReadText(response);
+      throw new HttpError(url, response.status, body);
+    }
+    return response.text();
+  }
+
   /** GET /api/v1/workspaces/:id/nodes/:glm_id */
   async getNode(workspaceId: string, glmId: string): Promise<NodeWithChildren> {
     return this.get<NodeWithChildren>(
