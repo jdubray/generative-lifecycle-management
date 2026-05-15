@@ -49,7 +49,7 @@ describe('verifier routes', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { run: { overallPass: boolean; gateResults: { gates: Array<{ name: string }> } } };
     expect(body.run.overallPass).toBe(true);
-    expect(body.run.gateResults.gates.length).toBe(7);
+    expect(body.run.gateResults.gates.length).toBe(8); // gates 1, 2, 2b, 3, 4, 5, 6, 7
   });
 
   test('POST /verify on a sekkei with a dangling reference fails gate 3', async () => {

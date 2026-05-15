@@ -371,19 +371,18 @@ export function buildContextBundle(
 
   // Sibling interface section — only emitted when there are resolvable siblings.
   if (siblingRefs.length > 0) {
-    const siblingBlocks: string[] = [];
-    const saved = { bytesUsed, digestLen: digests.length };
+    // Capture the insertion point before any sibling content is appended so
+    // the header always lands immediately before the first sibling block,
+    // even when a byte-cap truncation message is also pushed during iteration.
+    const siblingInsertAt = blocks.length;
+    let siblingResolved = false;
     for (const ref of siblingRefs) {
       const before = blocks.length;
       if (!appendRef(ref, true)) break;
-      if (blocks.length > before) siblingBlocks.push(blocks[blocks.length - 1]!);
+      if (blocks.length > before) siblingResolved = true;
     }
-    // Only emit the header if at least one sibling resolved.
-    if (siblingBlocks.length > 0) {
-      // Insert the header before the sibling blocks in the output array.
-      const insertAt = blocks.length - siblingBlocks.length;
-      blocks.splice(insertAt, 0, '# DEPENDENCY INTERFACES (auto-resolved from depends-on / composes-of edges):');
-      void saved;
+    if (siblingResolved) {
+      blocks.splice(siblingInsertAt, 0, '# DEPENDENCY INTERFACES (auto-resolved from depends-on / composes-of edges):');
     }
   }
 

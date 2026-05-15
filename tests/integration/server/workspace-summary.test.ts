@@ -67,4 +67,34 @@ describe('workspace endpoints', () => {
     const res = await s.request('GET', '/api/v1/workspaces/ws-nope/summary');
     expect(res.status).toBe(404);
   });
+
+  // Regression: slug-based lookup must propagate ws.id to all repo queries.
+  // Before the fix, routes called resolveWorkspace() to resolve the slug but
+  // then used the raw URL param (slug) for every subsequent repo call,
+  // causing all counts to return 0 for slug-addressed workspaces.
+  test('GET /workspaces/:slug/summary returns correct counts when addressed by slug', async () => {
+    await s.request('POST', '/api/v1/workspaces/ws-1/nodes', {
+      body: {
+        glmId: 'glm:component.slug-test',
+        stratum: 'component',
+        title: 'SlugTest',
+        body: { boundary: 'b', runtime: 'r' },
+        revisionMajor: 'A',
+        revisionIteration: 0,
+        revisionStatus: 'in_work',
+        overrideKind: 'net_new',
+      },
+    });
+
+    // Address by slug ('demo') instead of UUID ('ws-1').
+    const res = await s.request('GET', '/api/v1/workspaces/demo/summary');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      nodes: { total: number; byStratum: Record<string, number> };
+    };
+    // Must be > 0 — previously returned 0 because slug was used as workspace_id
+    // in the listByWorkspaceStratum query, which matched no rows.
+    expect(body.nodes.total).toBeGreaterThan(0);
+    expect(body.nodes.byStratum.component).toBeGreaterThan(0);
+  });
 });

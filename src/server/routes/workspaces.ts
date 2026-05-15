@@ -108,10 +108,10 @@ export function workspaceRoutes(): Hono<AppEnv> {
       const sd = body.sourceDir.trim();
       if (sd.length === 0) throw httpError(400, 'sourceDir must be non-empty');
       if (!isAbsolute(sd)) throw httpError(400, `sourceDir must be absolute (got '${sd}')`);
-      c.var.repos.workspaces.setSourceDir(workspaceId, sd);
+      c.var.repos.workspaces.setSourceDir(ws.id, sd);
     }
 
-    const updated = c.var.repos.workspaces.findById(workspaceId);
+    const updated = c.var.repos.workspaces.findById(ws.id);
     return c.json({ workspace: updated });
   });
 
@@ -148,7 +148,7 @@ export function workspaceRoutes(): Hono<AppEnv> {
     const result = attachRemote(
       { workspaces: c.var.repos.workspaces },
       {
-        workspaceId: id,
+        workspaceId: ws.id,
         gitRemote,
         gitRef: body.gitRef?.trim() || undefined,
         gitForge,
@@ -156,7 +156,7 @@ export function workspaceRoutes(): Hono<AppEnv> {
       },
     );
 
-    const updated = c.var.repos.workspaces.findById(id)!;
+    const updated = c.var.repos.workspaces.findById(ws.id)!;
     return c.json({
       workspace: updated,
       gitCommit: result.gitCommit,
@@ -183,7 +183,7 @@ export function workspaceRoutes(): Hono<AppEnv> {
       },
       c.var.deps.events,
       {
-        workspaceId: id,
+        workspaceId: ws.id,
         knownCommit: ws.gitCommit,
         gitCloneDir: ws.gitCloneDir,
       },
@@ -198,7 +198,7 @@ export function workspaceRoutes(): Hono<AppEnv> {
     const id = c.req.param('id');
     const ws = resolveWorkspace(c.var.repos, id);
     if (!ws) throw httpError(404, `workspace '${id}' not found`);
-    return c.json({ conflicts: c.var.repos.workspaceConflicts.listOpen(id) });
+    return c.json({ conflicts: c.var.repos.workspaceConflicts.listOpen(ws.id) });
   });
 
   // DELETE /workspaces/:id/git-remote — detach remote (workspace reverts to DB-only).
@@ -209,7 +209,7 @@ export function workspaceRoutes(): Hono<AppEnv> {
     if (!ws) throw httpError(404, `workspace '${id}' not found`);
     if (!ws.gitRemote) throw httpError(409, 'workspace has no git remote attached');
 
-    c.var.repos.workspaces.detachGit(id);
+    c.var.repos.workspaces.detachGit(ws.id);
     return c.json({ ok: true });
   });
 
@@ -223,22 +223,22 @@ export function workspaceRoutes(): Hono<AppEnv> {
     if (!ws) throw httpError(404, `workspace '${id}' not found`);
 
     const nodesByStratum = Object.fromEntries(
-      STRATA.map((s) => [s, c.var.repos.nodes.listByWorkspaceStratum(id, s).length]),
+      STRATA.map((s) => [s, c.var.repos.nodes.listByWorkspaceStratum(ws.id, s).length]),
     ) as Record<Stratum, number>;
     const nodeTotal = Object.values(nodesByStratum).reduce((a, b) => a + b, 0);
 
     const scrsByStatus = Object.fromEntries(
-      SCR_STATUSES.map((s) => [s, c.var.repos.scrs.listByStatus(id, s).length]),
+      SCR_STATUSES.map((s) => [s, c.var.repos.scrs.listByStatus(ws.id, s).length]),
     ) as Record<ScrStatus, number>;
     const scrActive =
       scrsByStatus.Submitted + scrsByStatus['Under Review'] + scrsByStatus.Approved;
 
     const driftByStatus = Object.fromEntries(
-      DRIFT_STATUSES.map((s) => [s, c.var.repos.drift.listByStatus(id, s).length]),
+      DRIFT_STATUSES.map((s) => [s, c.var.repos.drift.listByStatus(ws.id, s).length]),
     ) as Record<DriftStatus, number>;
     const driftTotal = driftByStatus['Hash-Drifted'] + driftByStatus['Live-Drifted'];
 
-    const provs = c.var.repos.provenance.listByWorkspace(id, 200);
+    const provs = c.var.repos.provenance.listByWorkspace(ws.id, 200);
     const tokens = provs.reduce(
       (acc, p) => {
         acc.in += p.tokensIn;
@@ -250,8 +250,8 @@ export function workspaceRoutes(): Hono<AppEnv> {
       { in: 0, out: 0, hits: 0, misses: 0 },
     );
 
-    const activity = c.var.repos.changeLog.listLatest(id, 20);
-    const lastVerifier = c.var.repos.verificationRuns.latest(id);
+    const activity = c.var.repos.changeLog.listLatest(ws.id, 20);
+    const lastVerifier = c.var.repos.verificationRuns.latest(ws.id);
 
     return c.json({
       workspace: ws,
