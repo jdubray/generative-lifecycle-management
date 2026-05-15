@@ -16,10 +16,11 @@ const HEALTH = { ok: true, service: 'glm', version: '1.0.0' };
 
 const SAMPLE_SUMMARY: WorkspaceSummary = {
   workspace: { id: 'default', slug: 'default', name: 'Default' },
-  nodesByStratum: { system: 1, capability: 3, component: 7, interaction: 2, spec: 18 },
-  scrsByStatus: { Submitted: 2, 'Under Review': 1, Approved: 0 },
-  driftByStatus: { Synced: 5, 'Hash-Drifted': 1, 'Live-Drifted': 0, Suspended: 0 },
-  lastVerifier: { id: 'v-1', passed: true, completedAt: '2026-05-12T10:00:00Z', gateCount: 6, passCount: 6 },
+  nodes: { total: 31, byStratum: { system: 1, capability: 3, component: 7, interaction: 2, spec: 18 } },
+  scrs: { active: 3, byStatus: { Submitted: 2, 'Under Review': 1, Approved: 0 } },
+  drift: { drifted: 1, byStatus: { Synced: 5, 'Hash-Drifted': 1, 'Live-Drifted': 0, Suspended: 0 } },
+  generation: { eventsConsidered: 0, tokensIn: 0, tokensOut: 0, cacheHits: 0, cacheMisses: 0 },
+  verifier: { id: 'v-1', ts: '2026-05-12T10:00:00Z', overallPass: true },
 };
 
 /** Build a fake GlmClient whose methods return canned values or throw. */
@@ -71,7 +72,7 @@ describe('glm status', () => {
     const parsed = JSON.parse(out.trim());
     expect(parsed.workspace).toBe('default');
     expect(parsed.health.version).toBe('1.0.0');
-    expect(parsed.summary.nodesByStratum.system).toBe(1);
+    expect(parsed.summary.nodes.byStratum.system).toBe(1);
   });
 
   test('server unreachable → exit 69 with helpful message on stderr', async () => {

@@ -20,6 +20,7 @@
     "verify": "bun run scripts/verify.ts"
   },
   "dependencies": {
+    "googleapis": "144",
     "hono": "^4.6.0",
     "yaml": "^2.6.0"
   },

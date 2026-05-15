@@ -89,25 +89,16 @@ function formatPretty(
     lines.push('Workspace summary: unavailable');
     if (summaryError) lines.push(`  → ${summaryError.message}`);
   } else {
-    const total = Object.values(summary.nodesByStratum).reduce((a, b) => a + b, 0);
-    lines.push(`Nodes:      ${total} total`);
-    for (const [stratum, count] of Object.entries(summary.nodesByStratum)) {
+    lines.push(`Nodes:      ${summary.nodes.total} total`);
+    for (const [stratum, count] of Object.entries(summary.nodes.byStratum)) {
       lines.push(`  ${stratum.padEnd(12)} ${count}`);
     }
     lines.push('');
-    const scrActive =
-      (summary.scrsByStatus.Submitted ?? 0) +
-      (summary.scrsByStatus['Under Review'] ?? 0) +
-      (summary.scrsByStatus.Approved ?? 0);
-    lines.push(`SCRs:       ${scrActive} active`);
-    const drifted =
-      (summary.driftByStatus['Hash-Drifted'] ?? 0) + (summary.driftByStatus['Live-Drifted'] ?? 0);
-    lines.push(`Drift:      ${drifted} open`);
-    if (summary.lastVerifier) {
-      const v = summary.lastVerifier;
-      lines.push(
-        `Verifier:   ${v.passed ? 'PASS' : 'FAIL'}  (${v.passCount}/${v.gateCount}, ran ${v.completedAt})`,
-      );
+    lines.push(`SCRs:       ${summary.scrs.active} active`);
+    lines.push(`Drift:      ${summary.drift.drifted} open`);
+    if (summary.verifier) {
+      const v = summary.verifier;
+      lines.push(`Verifier:   ${v.overallPass ? 'PASS' : 'FAIL'}  (ran ${v.ts})`);
     } else {
       lines.push('Verifier:   never run');
     }
