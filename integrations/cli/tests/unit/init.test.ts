@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { runInit, type RunInitOptions } from '../../src/commands/init.ts';
 import { parseCommandLine } from '../../src/lib/argv.ts';
 
@@ -233,6 +233,81 @@ describe('glm init', () => {
       const exit = await runInit(parseCommandLine(['init', '--write-env']), opts);
       expect(exit).toBe(0);
       expect(readFileSync(env, 'utf8')).toContain(`GLM_SOLO_TOKEN=${'7'.repeat(64)}`);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('--source-dir on an existing config PATCHes the workspace (no 78 guard)', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'glm-init-'));
+    const cfg = join(tmp, 'config.json');
+    try {
+      writeFileSync(cfg, JSON.stringify({ port: 3300, workspace: 'myapp', token: 'deadbeef'.repeat(8) }));
+      const calls: Array<{ ws: string; dir: string }> = [];
+      const opts = makeOpts({
+        configPath: cfg,
+        clientFactory: () => ({
+          setSourceDir: async (ws: string, dir: string) => {
+            calls.push({ ws, dir });
+          },
+        }),
+      });
+      const exit = await runInit(
+        parseCommandLine(['init', '--source-dir=/abs/code', '--workspace=myapp']),
+        opts,
+      );
+      expect(exit).toBe(0); // NOT the 78 "already exists" guard
+      expect(calls).toEqual([{ ws: 'myapp', dir: '/abs/code' }]);
+      expect((opts.stdout as StringStream).buffer).toContain("set source_dir for workspace 'myapp'");
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('--source-dir resolves a relative path to absolute before PATCHing', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'glm-init-'));
+    const cfg = join(tmp, 'config.json');
+    try {
+      writeFileSync(cfg, JSON.stringify({ port: 3300, workspace: 'myapp', token: 'deadbeef'.repeat(8) }));
+      let seenDir = '';
+      const opts = makeOpts({
+        configPath: cfg,
+        clientFactory: () => ({
+          setSourceDir: async (_ws: string, dir: string) => {
+            seenDir = dir;
+          },
+        }),
+      });
+      const exit = await runInit(
+        parseCommandLine(['init', '--source-dir=rel/sub', '--workspace=myapp']),
+        opts,
+      );
+      expect(exit).toBe(0);
+      expect(isAbsolute(seenDir)).toBe(true);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('--source-dir surfaces a PATCH failure as a non-zero exit', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'glm-init-'));
+    const cfg = join(tmp, 'config.json');
+    try {
+      writeFileSync(cfg, JSON.stringify({ port: 3300, workspace: 'myapp', token: 'deadbeef'.repeat(8) }));
+      const opts = makeOpts({
+        configPath: cfg,
+        clientFactory: () => ({
+          setSourceDir: async () => {
+            throw new Error('workspace myapp not found');
+          },
+        }),
+      });
+      const exit = await runInit(
+        parseCommandLine(['init', '--source-dir=/abs/code', '--workspace=myapp']),
+        opts,
+      );
+      expect(exit).toBe(1);
+      expect((opts.stderr as StringStream).buffer).toContain('failed to set source_dir');
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }

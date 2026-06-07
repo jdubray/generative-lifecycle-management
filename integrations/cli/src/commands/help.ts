@@ -35,9 +35,14 @@ COMMANDS
                           lock-PUT-unlocks the node.
 
   init [--name <name>] [--port <port>] [--token <hex>] [--force]
+       [--source-dir <abs-path>] [--workspace <id>]
                           Generate ~/.glm/config.json with a random GLM_SOLO_TOKEN.
                           Set that token as an env var on the GLM server to enable
                           solo-mode auth bypass.
+                          With --source-dir, also persist that absolute path as the
+                          source_dir of the addressed workspace (--workspace), where
+                          generated code lands. Works against an existing config too
+                          (it does not re-init); relative paths resolve against cwd.
 
   status [--workspace <id>]
                           Show sekkei node counts, verification status, last generation timestamp.

@@ -45,16 +45,21 @@ is green → flip to auto-pilot.**
 
 ---
 
-## Phase 0 — Setup (once per project)
+## Phase 0 — Setup (once per machine)
 
 ```bash
 glm init --name myproj                 # writes ~/.glm/config.json + a solo token
 # (the GLM server is already always-on on :3300 via the "GLM Server" task)
-glm init --source-dir /abs/path/to/code  # where generated code lands (sandboxed)
 ```
 
-`source_dir` is a hard sandbox: `generate` only ever writes **under** it and
-never outside. That is the blast-radius guarantee that makes auto-pilot safe.
+> Reusing an existing GLM server? Do **not** re-run `glm init` — it would mint a
+> new token that no longer matches the server. Just pick a fresh `--slug` in
+> Phase 1. `source_dir` is set per workspace **after** vibe creates it (Phase 1,
+> step 5), since you can't PATCH a workspace that doesn't exist yet.
+
+`source_dir` (set below) is a hard sandbox: `generate` only ever writes **under**
+it and never outside. That is the blast-radius guarantee that makes auto-pilot
+safe.
 
 ## Phase 1 — Vibe to a sekkei (high-touch loop)
 
@@ -76,6 +81,9 @@ A tight loop, not one shot:
    shapes, and the load-bearing rules (honest boundaries, deliverables-not-prose
    acceptance, machine-runnable prompts). Full detail in
    [`sekkei-authoring.md`](./sekkei-authoring.md).
+5. **Set the code sandbox** (once the workspace exists):
+   `glm init --source-dir /abs/path/to/code --workspace myproj`. This persists
+   `source_dir` on the workspace — where auto-pilot writes generated files.
 
 ## The Gate — "Definition of Ready to Code" (DoRC)
 
