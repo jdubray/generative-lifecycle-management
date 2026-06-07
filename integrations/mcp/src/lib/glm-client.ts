@@ -17,17 +17,22 @@ export interface GlmClientOptions {
 
 export interface WorkspaceSummary {
   workspace: { id: string; slug: string; name: string };
-  nodesByStratum: Record<string, number>;
-  scrsByStatus: Record<string, number>;
-  driftByStatus: Record<string, number>;
-  tokens?: { in: number; out: number; hits: number; misses: number };
-  lastVerifier?: {
+  nodes: { total: number; byStratum: Record<string, number> };
+  scrs: { active: number; byStatus: Record<string, number> };
+  drift: { drifted: number; byStatus: Record<string, number> };
+  generation?: {
+    eventsConsidered: number;
+    tokensIn: number;
+    tokensOut: number;
+    cacheHits: number;
+    cacheMisses: number;
+  };
+  verifier?: {
     id: string;
-    passed: boolean;
-    completedAt: string;
-    gateCount: number;
-    passCount: number;
+    ts: string;
+    overallPass: boolean;
   } | null;
+  activity?: unknown[];
 }
 
 export interface SekkeiNodeSummary {

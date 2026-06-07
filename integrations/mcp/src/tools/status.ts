@@ -41,21 +41,20 @@ export async function runStatus(
   lines.push(`Workspace: ${summary.workspace.slug} (${summary.workspace.id})`);
   lines.push(`Name:      ${summary.workspace.name}`);
   lines.push('');
-  lines.push('Nodes by stratum:');
-  for (const [stratum, count] of Object.entries(summary.nodesByStratum)) {
+  lines.push(`Nodes by stratum (${summary.nodes.total} total):`);
+  for (const [stratum, count] of Object.entries(summary.nodes.byStratum)) {
     lines.push(`  ${stratum.padEnd(12)} ${count}`);
   }
   lines.push('');
-  lines.push('SCRs by status:');
-  for (const [status, count] of Object.entries(summary.scrsByStatus)) {
+  lines.push(`SCRs by status (${summary.scrs.active} active):`);
+  for (const [status, count] of Object.entries(summary.scrs.byStatus)) {
     lines.push(`  ${status.padEnd(12)} ${count}`);
   }
-  if (summary.lastVerifier) {
+  if (summary.verifier) {
     lines.push('');
     lines.push('Last verifier run:');
-    lines.push(`  passed:      ${summary.lastVerifier.passed}`);
-    lines.push(`  completedAt: ${summary.lastVerifier.completedAt}`);
-    lines.push(`  gates:       ${summary.lastVerifier.passCount}/${summary.lastVerifier.gateCount}`);
+    lines.push(`  passed: ${summary.verifier.overallPass}`);
+    lines.push(`  ran at: ${summary.verifier.ts}`);
   }
 
   return { content: [{ type: 'text', text: lines.join('\n') }] };

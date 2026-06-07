@@ -15,15 +15,13 @@ function fakeClient(summary: WorkspaceSummary, capture?: (id: string) => void): 
 
 const SAMPLE_SUMMARY: WorkspaceSummary = {
   workspace: { id: 'ws-1', slug: 'demo', name: 'Demo Workspace' },
-  nodesByStratum: { system: 1, capability: 4, component: 12, interaction: 7, spec: 33 },
-  scrsByStatus: { open: 0, merged: 2 },
-  driftByStatus: {},
-  lastVerifier: {
+  nodes: { total: 57, byStratum: { system: 1, capability: 4, component: 12, interaction: 7, spec: 33 } },
+  scrs: { active: 0, byStatus: { open: 0, merged: 2 } },
+  drift: { drifted: 0, byStatus: {} },
+  verifier: {
     id: 'run-1',
-    passed: true,
-    completedAt: '2026-05-13T14:00:00Z',
-    gateCount: 7,
-    passCount: 7,
+    ts: '2026-05-13T14:00:00Z',
+    overallPass: true,
   },
 };
 
@@ -43,7 +41,7 @@ describe('glm_status tool', () => {
     expect(text).toContain('demo');
     expect(text).toMatch(/component\s+12/);
     expect(text).toContain('Last verifier run');
-    expect(text).toContain('7/7');
+    expect(text).toContain('passed: true');
   });
 
   test('uses workspace from input when provided', async () => {
@@ -65,7 +63,7 @@ describe('glm_status tool', () => {
   });
 
   test('omits "Last verifier run" block when summary has no verifier history', async () => {
-    const summary: WorkspaceSummary = { ...SAMPLE_SUMMARY, lastVerifier: null };
+    const summary: WorkspaceSummary = { ...SAMPLE_SUMMARY, verifier: null };
     const result = await runStatus({}, { client: fakeClient(summary), config: CONFIG });
     expect(result.content[0]?.text).not.toContain('Last verifier');
   });
