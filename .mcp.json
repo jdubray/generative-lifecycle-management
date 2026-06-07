@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "glm": {
+      "command": "bun",
+      "args": ["run", "integrations/mcp/src/bin/glm-mcp.ts"]
+    }
+  }
+}
