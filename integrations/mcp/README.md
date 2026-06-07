@@ -37,7 +37,7 @@ The MCP server reads `~/.glm/config.json` (populated by `glm init`) for `port`, 
 
 ## Install the slash commands
 
-The `commands/` directory ships five slash command templates that orchestrate the MCP tools into one-line invocations. Copy them to your Claude Code commands directory:
+The `commands/` directory ships slash command templates that orchestrate the MCP tools into one-line invocations. Copy them to your Claude Code commands directory:
 
 ```bash
 # User-wide (works in every project)
@@ -55,6 +55,8 @@ After copying, restart Claude Code (or run `/reload`) and the commands become av
 - `/glm-verify [workspace]` — run the 7-gate verifier
 - `/glm-generate <component_id>` — full generate loop (resolve spec → write files → run acceptance verifier → record provenance, with up to 3 verifier retries)
 - `/glm-refine <glm_id>` — patch a node body via RFC-6902 JSON-Patch (acquire lock → PUT → release lock)
+- `/glm-ready [workspace]` — the "Definition of Ready to Code" gate: is the sekkei complete enough to build on auto-pilot? (read-only)
+- `/glm-build [workspace]` — auto-pilot: generate every component in dependency order, retry, record provenance, until the tree is green (stop-on-first-failure). See `docs/glm-cli-process.md`.
 
 ## Available MCP tools
 

@@ -32,13 +32,23 @@ There are three ways to drive a sekkei. Pick by what the user is doing:
 | Surface | Where | Use it when |
 |---|---|---|
 | **MCP tools** (`glm_*`) | `integrations/mcp/` | Driving generation/refinement from inside this Claude Code session (server must be wired into settings) |
-| **Slash commands** | `integrations/mcp/commands/` | One-line orchestrations: `/glm-status`, `/glm-list-components`, `/glm-verify`, `/glm-generate <id>`, `/glm-refine <glm_id>` |
+| **Slash commands** | `integrations/mcp/commands/` | One-line orchestrations: `/glm-status`, `/glm-list-components`, `/glm-verify`, `/glm-generate <id>`, `/glm-refine <glm_id>`, `/glm-ready`, `/glm-build` |
 | **GLM CLI** (`glm`) | `integrations/cli/` | Terminal-driven solo workflows: `glm init`, `glm status`, `glm vibe [--from-dir <path>]`, `glm verify`, `glm generate --component <id>`, `glm refine --node <id>`, `glm import-sekkei <file>` |
 
 Both the MCP server and the CLI talk to a local GLM server over HTTP and read
 `~/.glm/config.json` (port, workspace, token) written by `glm init`. If a command fails
 with no config, the user likely needs to run `glm init` and start the server
 (`bun run src/server/server.ts` from the repo root).
+
+## End-to-end: vibe a sekkei, then code on auto-pilot
+
+The headline workflow (full detail in `docs/glm-cli-process.md`): **vibe the
+sekkei interactively until `glm verify` is green, then flip to auto-pilot.** The
+verifier is the gate — gates 5 (spec coverage) + 6 (spec quality) green means
+every component is a machine-runnable contract. Check the gate with `/glm-ready`;
+once it says READY, `/glm-build` generates every component in dependency order
+(retry + acceptance-verify + provenance, stop-on-first-failure) until the tree is
+green. For unattended runs wrap `/glm-build` in the `/loop` skill.
 
 ## Choosing a workflow
 
