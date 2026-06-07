@@ -54,4 +54,28 @@ describe('workspace slug resolution across route modules', () => {
     const res = await s.request('GET', '/api/v1/workspaces/does-not-exist/nodes');
     expect(res.status).toBe(404);
   });
+
+  // component-spec + record-generation resolve the workspace inside
+  // resolveComponentSpec, so the slug must be resolved at the route boundary
+  // first. With no such component both forms 404 — but the slug must produce the
+  // SAME error as the UUID (a component-not-found), never "workspace not found".
+  test('component-spec route resolves the slug like the UUID', async () => {
+    const bySlug = await s.request('GET', '/api/v1/workspaces/demo/components/nope/spec');
+    const byId = await s.request('GET', '/api/v1/workspaces/ws-1/components/nope/spec');
+    expect(bySlug.status).toBe(byId.status);
+    const a = (await bySlug.json()) as unknown;
+    const b = (await byId.json()) as unknown;
+    expect(a).toEqual(b);
+    expect(JSON.stringify(a)).not.toContain('workspace'); // not a workspace-not-found
+  });
+
+  test('record-generation route resolves the slug like the UUID', async () => {
+    const payload = {
+      body: { componentId: 'nope', files: [{ path: 'x.ts', sha256: 'sha256:0', bytes: 1 }], verifierExitCode: 0 },
+    };
+    const bySlug = await s.request('POST', '/api/v1/workspaces/demo/record-generation', payload);
+    const byId = await s.request('POST', '/api/v1/workspaces/ws-1/record-generation', payload);
+    expect(bySlug.status).toBe(byId.status);
+    expect(JSON.stringify(await bySlug.json())).not.toContain('workspace');
+  });
 });

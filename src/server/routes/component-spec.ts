@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { ComponentSpecError, resolveComponentSpec } from '../../generation/component-spec.ts';
 import { requirePrincipal, type AppEnv } from '../middleware/auth.ts';
 import { httpError } from '../middleware/error.ts';
+import { requireWorkspace } from './_workspace.ts';
 
 /**
  * Composite endpoint that returns everything an MCP-driven Claude Code
@@ -21,7 +22,7 @@ export function componentSpecRoutes(): Hono<AppEnv> {
   // GET /workspaces/:id/components/:glm_id/spec
   app.get('/workspaces/:id/components/:glm_id/spec', (c) => {
     requirePrincipal(c);
-    const workspaceId = c.req.param('id');
+    const workspaceId = requireWorkspace(c, c.req.param('id')).id;
     const componentGlmId = c.req.param('glm_id');
     try {
       const spec = resolveComponentSpec(

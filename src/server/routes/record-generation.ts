@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import { aggregateDigest, ComponentSpecError, resolveComponentSpec } from '../../generation/component-spec.ts';
 import { requirePrincipal, type AppEnv } from '../middleware/auth.ts';
 import { httpError } from '../middleware/error.ts';
+import { requireWorkspace } from './_workspace.ts';
 
 /**
  * Provenance + audit recording endpoint for the MCP-driven generation flow.
@@ -26,7 +27,7 @@ export function recordGenerationRoutes(): Hono<AppEnv> {
 
   app.post('/workspaces/:id/record-generation', async (c) => {
     const principal = requirePrincipal(c);
-    const workspaceId = c.req.param('id');
+    const workspaceId = requireWorkspace(c, c.req.param('id')).id;
 
     const body = (await c.req.json().catch(() => ({}))) as {
       componentId?: unknown;
