@@ -3,6 +3,7 @@ import { runPipeline } from '../../generation/pipeline.ts';
 import type { GeneratorIdentity, Sha256Hash } from '../../types.ts';
 import { requirePrincipal, type AppEnv } from '../middleware/auth.ts';
 import { httpError } from '../middleware/error.ts';
+import { requireWorkspace } from './_workspace.ts';
 
 /**
  * Generation pipeline endpoint (spec §7.1). Runs synchronously inside the
@@ -16,8 +17,7 @@ export function generationRoutes(): Hono<AppEnv> {
   // POST /workspaces/:id/generate
   app.post('/workspaces/:id/generate', async (c) => {
     requirePrincipal(c);
-    const workspaceId = c.req.param('id');
-    requireWorkspace(c, workspaceId);
+    const workspaceId = requireWorkspace(c, c.req.param('id')).id;
 
     if (!c.var.deps.llm) throw httpError(400, 'no LLM client configured on this server');
     if (!c.var.deps.generationCache) throw httpError(400, 'no generation cache configured');
@@ -76,9 +76,4 @@ export function generationRoutes(): Hono<AppEnv> {
   });
 
   return app;
-}
-
-function requireWorkspace(c: { var: AppEnv['Variables'] }, workspaceId: string): void {
-  const ws = c.var.repos.workspaces.findById(workspaceId);
-  if (!ws) throw httpError(404, `workspace ${workspaceId} not found`);
 }

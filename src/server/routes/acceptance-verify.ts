@@ -3,6 +3,7 @@ import { runAcceptanceVerifier } from '../../generation/acceptance-runner.ts';
 import { ComponentSpecError, resolveComponentSpec } from '../../generation/component-spec.ts';
 import { requirePrincipal, type AppEnv } from '../middleware/auth.ts';
 import { httpError } from '../middleware/error.ts';
+import { requireWorkspace } from './_workspace.ts';
 
 /**
  * Acceptance-verifier endpoint for the MCP-driven generation flow.
@@ -24,7 +25,7 @@ export function acceptanceVerifyRoutes(): Hono<AppEnv> {
 
   app.post('/workspaces/:id/acceptance-verify', async (c) => {
     requirePrincipal(c);
-    const workspaceId = c.req.param('id');
+    const workspaceId = requireWorkspace(c, c.req.param('id')).id;
 
     const body = (await c.req.json().catch(() => ({}))) as { componentId?: unknown };
     const componentId = typeof body.componentId === 'string' ? body.componentId : '';

@@ -6,6 +6,7 @@ import type { ScrInsert } from '../../repository/scr-repository.ts';
 import type { ScrApprovalDecision } from '../../types.ts';
 import { requirePrincipal, type AppEnv } from '../middleware/auth.ts';
 import { httpError } from '../middleware/error.ts';
+import { requireWorkspace } from './_workspace.ts';
 
 export function scrRoutes(): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
@@ -13,8 +14,7 @@ export function scrRoutes(): Hono<AppEnv> {
   // GET /workspaces/:id/scrs
   app.get('/workspaces/:id/scrs', (c) => {
     requirePrincipal(c);
-    const workspaceId = c.req.param('id');
-    requireWorkspace(c, workspaceId);
+    const workspaceId = requireWorkspace(c, c.req.param('id')).id;
     const status = c.req.query('status');
     if (status) {
       return c.json({
@@ -30,8 +30,7 @@ export function scrRoutes(): Hono<AppEnv> {
   // POST /workspaces/:id/scrs
   app.post('/workspaces/:id/scrs', async (c) => {
     const principal = requirePrincipal(c);
-    const workspaceId = c.req.param('id');
-    requireWorkspace(c, workspaceId);
+    const workspaceId = requireWorkspace(c, c.req.param('id')).id;
 
     const body = (await c.req.json()) as Partial<ScrInsert>;
     if (!body.title) throw httpError(400, 'title is required');
@@ -72,8 +71,7 @@ export function scrRoutes(): Hono<AppEnv> {
   // GET /workspaces/:id/scrs/:scr_id
   app.get('/workspaces/:id/scrs/:scr_id', (c) => {
     requirePrincipal(c);
-    const workspaceId = c.req.param('id');
-    requireWorkspace(c, workspaceId);
+    const workspaceId = requireWorkspace(c, c.req.param('id')).id;
     const scrId = c.req.param('scr_id');
     const scr = c.var.repos.scrs.findById(scrId);
     if (!scr || scr.workspaceId !== workspaceId) throw httpError(404, `scr ${scrId} not found`);
@@ -83,8 +81,7 @@ export function scrRoutes(): Hono<AppEnv> {
   // PUT /workspaces/:id/scrs/:scr_id/status
   app.put('/workspaces/:id/scrs/:scr_id/status', async (c) => {
     const principal = requirePrincipal(c);
-    const workspaceId = c.req.param('id');
-    requireWorkspace(c, workspaceId);
+    const workspaceId = requireWorkspace(c, c.req.param('id')).id;
     const scrId = c.req.param('scr_id');
     const scr = c.var.repos.scrs.findById(scrId);
     if (!scr || scr.workspaceId !== workspaceId) throw httpError(404, `scr ${scrId} not found`);
@@ -143,8 +140,7 @@ export function scrRoutes(): Hono<AppEnv> {
   // POST /workspaces/:id/scrs/:scr_id/approvals
   app.post('/workspaces/:id/scrs/:scr_id/approvals', async (c) => {
     const principal = requirePrincipal(c);
-    const workspaceId = c.req.param('id');
-    requireWorkspace(c, workspaceId);
+    const workspaceId = requireWorkspace(c, c.req.param('id')).id;
     const scrId = c.req.param('scr_id');
     const scr = c.var.repos.scrs.findById(scrId);
     if (!scr || scr.workspaceId !== workspaceId) throw httpError(404, `scr ${scrId} not found`);
@@ -202,10 +198,6 @@ function shortId(): string {
   return Math.floor(Math.random() * 10000).toString().padStart(4, '0');
 }
 
-function requireWorkspace(c: { var: AppEnv['Variables'] }, workspaceId: string): void {
-  const ws = c.var.repos.workspaces.findById(workspaceId);
-  if (!ws) throw httpError(404, `workspace ${workspaceId} not found`);
-}
 
 function mkEvent(type: ScrEvent['type'], reason?: string): ScrEvent {
   switch (type) {

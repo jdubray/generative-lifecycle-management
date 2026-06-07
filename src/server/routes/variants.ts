@@ -6,6 +6,7 @@ import type { GeneratorIdentity, VariantRolloutState } from '../../types.ts';
 import type { LockNode } from '../../git/sekkei-lock.ts';
 import { requirePrincipal, type AppEnv } from '../middleware/auth.ts';
 import { httpError } from '../middleware/error.ts';
+import { requireWorkspace } from './_workspace.ts';
 
 const ROLLOUT_ORDER: VariantRolloutState[] = [
   'Released',
@@ -21,16 +22,14 @@ export function variantRoutes(): Hono<AppEnv> {
   // GET /workspaces/:id/variants
   app.get('/workspaces/:id/variants', (c) => {
     requirePrincipal(c);
-    const workspaceId = c.req.param('id');
-    requireWorkspace(c, workspaceId);
+    const workspaceId = requireWorkspace(c, c.req.param('id')).id;
     return c.json({ variants: c.var.repos.variants.listVariants(workspaceId) });
   });
 
   // POST /workspaces/:id/variants/:variant_id/resolve
   app.post('/workspaces/:id/variants/:variant_id/resolve', async (c) => {
     requirePrincipal(c);
-    const workspaceId = c.req.param('id');
-    requireWorkspace(c, workspaceId);
+    const workspaceId = requireWorkspace(c, c.req.param('id')).id;
     const variantId = c.req.param('variant_id');
     const variant = c.var.repos.variants.findVariant(variantId);
     if (!variant || variant.workspaceId !== workspaceId) {
@@ -61,8 +60,7 @@ export function variantRoutes(): Hono<AppEnv> {
   // sekkei.lock on a `variants/<label>` branch via a git worktree.
   app.post('/workspaces/:id/variants/:variant_id/publish', async (c) => {
     const principal = requirePrincipal(c);
-    const workspaceId = c.req.param('id');
-    requireWorkspace(c, workspaceId);
+    const workspaceId = requireWorkspace(c, c.req.param('id')).id;
     const variantId = c.req.param('variant_id');
     const variant = c.var.repos.variants.findVariant(variantId);
     if (!variant || variant.workspaceId !== workspaceId) {
@@ -128,8 +126,7 @@ export function variantRoutes(): Hono<AppEnv> {
   // GET /workspaces/:id/variants/:variant_id/rollout
   app.get('/workspaces/:id/variants/:variant_id/rollout', (c) => {
     requirePrincipal(c);
-    const workspaceId = c.req.param('id');
-    requireWorkspace(c, workspaceId);
+    const workspaceId = requireWorkspace(c, c.req.param('id')).id;
     const variantId = c.req.param('variant_id');
     const variant = c.var.repos.variants.findVariant(variantId);
     if (!variant || variant.workspaceId !== workspaceId) {
@@ -141,8 +138,7 @@ export function variantRoutes(): Hono<AppEnv> {
   // POST /workspaces/:id/variants
   app.post('/workspaces/:id/variants', async (c) => {
     requirePrincipal(c);
-    const workspaceId = c.req.param('id');
-    requireWorkspace(c, workspaceId);
+    const workspaceId = requireWorkspace(c, c.req.param('id')).id;
     const body = (await c.req.json()) as {
       id?: string;
       label?: string;
@@ -252,9 +248,4 @@ export function variantRoutes(): Hono<AppEnv> {
   );
 
   return app;
-}
-
-function requireWorkspace(c: { var: AppEnv['Variables'] }, workspaceId: string): void {
-  const ws = c.var.repos.workspaces.findById(workspaceId);
-  if (!ws) throw httpError(404, `workspace ${workspaceId} not found`);
 }

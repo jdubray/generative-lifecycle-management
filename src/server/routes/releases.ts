@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { createRelease, RELEASE_TAG_RE } from '../../git/sekkei-git-service.ts';
 import { requirePrincipal, type AppEnv } from '../middleware/auth.ts';
 import { httpError } from '../middleware/error.ts';
+import { requireWorkspace } from './_workspace.ts';
 
 export function releaseRoutes(): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
@@ -18,9 +19,7 @@ export function releaseRoutes(): Hono<AppEnv> {
    */
   app.post('/workspaces/:id/releases', async (c) => {
     const principal = requirePrincipal(c);
-    const workspaceId = c.req.param('id');
-    const ws = c.var.repos.workspaces.findById(workspaceId);
-    if (!ws) throw httpError(404, `workspace ${workspaceId} not found`);
+    const workspaceId = requireWorkspace(c, c.req.param('id')).id;
 
     const git = c.var.deps.getSekkeiGit(workspaceId);
     if (!git) throw httpError(409, 'workspace has no git remote attached');
@@ -73,9 +72,7 @@ export function releaseRoutes(): Hono<AppEnv> {
    */
   app.post('/workspaces/:id/rollout-records/:record_id/advance', async (c) => {
     const principal = requirePrincipal(c);
-    const workspaceId = c.req.param('id');
-    const ws = c.var.repos.workspaces.findById(workspaceId);
-    if (!ws) throw httpError(404, `workspace ${workspaceId} not found`);
+    const workspaceId = requireWorkspace(c, c.req.param('id')).id;
 
     const recordId = c.req.param('record_id');
     const record = c.var.repos.rollout.findById(recordId);

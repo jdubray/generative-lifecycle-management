@@ -5,6 +5,7 @@ import { runDriftSweep } from '../../git/sekkei-git-service.ts';
 import type { DriftStatus } from '../../types.ts';
 import { requirePrincipal, type AppEnv } from '../middleware/auth.ts';
 import { httpError } from '../middleware/error.ts';
+import { requireWorkspace } from './_workspace.ts';
 
 export function driftRoutes(): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
@@ -12,8 +13,7 @@ export function driftRoutes(): Hono<AppEnv> {
   // GET /workspaces/:id/drift
   app.get('/workspaces/:id/drift', (c) => {
     requirePrincipal(c);
-    const workspaceId = c.req.param('id');
-    requireWorkspace(c, workspaceId);
+    const workspaceId = requireWorkspace(c, c.req.param('id')).id;
     const status = c.req.query('status') as DriftStatus | undefined;
     if (status) {
       return c.json({ drift: c.var.repos.drift.listByStatus(workspaceId, status) });
@@ -27,8 +27,7 @@ export function driftRoutes(): Hono<AppEnv> {
   // POST /workspaces/:id/drift/sweep
   app.post('/workspaces/:id/drift/sweep', async (c) => {
     const principal = requirePrincipal(c);
-    const workspaceId = c.req.param('id');
-    requireWorkspace(c, workspaceId);
+    const workspaceId = requireWorkspace(c, c.req.param('id')).id;
 
     const realizationGit = c.var.deps.getRealizationGit(workspaceId);
     if (realizationGit) {
@@ -82,8 +81,7 @@ export function driftRoutes(): Hono<AppEnv> {
   // PUT /workspaces/:id/drift/:record_id/resolve
   app.put('/workspaces/:id/drift/:record_id/resolve', async (c) => {
     const principal = requirePrincipal(c);
-    const workspaceId = c.req.param('id');
-    requireWorkspace(c, workspaceId);
+    const workspaceId = requireWorkspace(c, c.req.param('id')).id;
     const id = c.req.param('record_id');
     const existing = c.var.repos.drift.findById(id);
     if (!existing || existing.workspaceId !== workspaceId) {
@@ -144,8 +142,7 @@ export function driftRoutes(): Hono<AppEnv> {
   // Reconciles every Live-Drifted record whose policy is `auto-heal`.
   app.post('/workspaces/:id/drift/auto-heal', (c) => {
     const principal = requirePrincipal(c);
-    const workspaceId = c.req.param('id');
-    requireWorkspace(c, workspaceId);
+    const workspaceId = requireWorkspace(c, c.req.param('id')).id;
     const all: DriftStatus[] = ['Hash-Drifted', 'Live-Drifted'];
     const candidates = all
       .flatMap((s) => c.var.repos.drift.listByStatus(workspaceId, s))
@@ -164,9 +161,4 @@ export function driftRoutes(): Hono<AppEnv> {
   });
 
   return app;
-}
-
-function requireWorkspace(c: { var: AppEnv['Variables'] }, workspaceId: string): void {
-  const ws = c.var.repos.workspaces.findById(workspaceId);
-  if (!ws) throw httpError(404, `workspace ${workspaceId} not found`);
 }

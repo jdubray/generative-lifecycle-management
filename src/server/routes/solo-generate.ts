@@ -3,6 +3,7 @@ import { isAbsolute } from 'node:path';
 import { runSoloGenerate, SoloGenerateError } from '../../generation/solo-generate.ts';
 import { type AppEnv, requirePrincipal } from '../middleware/auth.ts';
 import { httpError } from '../middleware/error.ts';
+import { requireWorkspace } from './_workspace.ts';
 
 /**
  * Solo-mode generation endpoint (docs/solo-mode-spec.md UC-02).
@@ -35,9 +36,7 @@ export function soloGenerateRoutes(): Hono<AppEnv> {
 
   app.post('/workspaces/:id/solo-generate', async (c) => {
     const principal = requirePrincipal(c);
-    const workspaceId = c.req.param('id');
-    const ws = c.var.repos.workspaces.findById(workspaceId);
-    if (!ws) throw httpError(404, `workspace ${workspaceId} not found`);
+    const workspaceId = requireWorkspace(c, c.req.param('id')).id;
 
     const body = (await c.req.json().catch(() => ({}))) as {
       component_id?: string;

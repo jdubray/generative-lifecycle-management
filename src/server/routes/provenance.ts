@@ -6,6 +6,7 @@ import {
 } from '../../generation/attestation.ts';
 import { requirePrincipal, type AppEnv } from '../middleware/auth.ts';
 import { httpError } from '../middleware/error.ts';
+import { requireWorkspace } from './_workspace.ts';
 
 export function provenanceRoutes(): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
@@ -13,8 +14,7 @@ export function provenanceRoutes(): Hono<AppEnv> {
   // GET /workspaces/:id/provenance
   app.get('/workspaces/:id/provenance', (c) => {
     requirePrincipal(c);
-    const workspaceId = c.req.param('id');
-    requireWorkspace(c, workspaceId);
+    const workspaceId = requireWorkspace(c, c.req.param('id')).id;
     const limit = clampLimit(c.req.query('limit'), 100);
     return c.json({ events: c.var.repos.provenance.listByWorkspace(workspaceId, limit) });
   });
@@ -22,8 +22,7 @@ export function provenanceRoutes(): Hono<AppEnv> {
   // GET /workspaces/:id/provenance/:event_id
   app.get('/workspaces/:id/provenance/:event_id', (c) => {
     requirePrincipal(c);
-    const workspaceId = c.req.param('id');
-    requireWorkspace(c, workspaceId);
+    const workspaceId = requireWorkspace(c, c.req.param('id')).id;
     const id = c.req.param('event_id');
     const event = c.var.repos.provenance.findById(id);
     if (!event || event.workspaceId !== workspaceId) {
@@ -49,8 +48,7 @@ export function provenanceRoutes(): Hono<AppEnv> {
   // AC-34: returns newline-delimited DSSE envelope JSON for the filtered set.
   app.post('/workspaces/:id/provenance/export', (c) => {
     requirePrincipal(c);
-    const workspaceId = c.req.param('id');
-    requireWorkspace(c, workspaceId);
+    const workspaceId = requireWorkspace(c, c.req.param('id')).id;
     const rows = c.var.repos.attestations.listByWorkspace(workspaceId, 10_000);
     const ndjson = rows.map((r) => r.dsseJson).join('\n');
     return new Response(ndjson, {
@@ -66,8 +64,7 @@ export function provenanceRoutes(): Hono<AppEnv> {
   // AC-35: re-verifies every signature server-side and returns a pass/fail report.
   app.post('/workspaces/:id/provenance/verify', (c) => {
     requirePrincipal(c);
-    const workspaceId = c.req.param('id');
-    requireWorkspace(c, workspaceId);
+    const workspaceId = requireWorkspace(c, c.req.param('id')).id;
     const rows = c.var.repos.attestations.listByWorkspace(workspaceId, 10_000);
     const report = rows.map((r) => {
       const envelope = JSON.parse(r.dsseJson) as DsseEnvelope;
@@ -89,11 +86,6 @@ export function provenanceRoutes(): Hono<AppEnv> {
   });
 
   return app;
-}
-
-function requireWorkspace(c: { var: AppEnv['Variables'] }, workspaceId: string): void {
-  const ws = c.var.repos.workspaces.findById(workspaceId);
-  if (!ws) throw httpError(404, `workspace ${workspaceId} not found`);
 }
 
 /** Bound a caller-supplied `limit` so a hostile client can't pull arbitrary memory. */

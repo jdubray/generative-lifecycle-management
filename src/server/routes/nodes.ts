@@ -6,6 +6,7 @@ import type { NodeInput } from '../../repository/node-repository.ts';
 import type { SekkeiNode, Stratum } from '../../types.ts';
 import { requirePrincipal, type AppEnv } from '../middleware/auth.ts';
 import { httpError } from '../middleware/error.ts';
+import { requireWorkspace } from './_workspace.ts';
 
 const STRATA: Stratum[] = ['system', 'capability', 'component', 'interaction', 'spec'];
 
@@ -15,15 +16,13 @@ export function nodeRoutes(): Hono<AppEnv> {
   // GET /workspaces/:id/nodes
   app.get('/workspaces/:id/nodes', (c) => {
     requirePrincipal(c);
-    const workspaceId = c.req.param('id');
+    const workspaceId = requireWorkspace(c, c.req.param('id')).id;
     const stratum = c.req.query('stratum') as Stratum | undefined;
     const status = c.req.query('status');
     // `include=relationships` returns each node's outbound edges (kind + targetGlmId)
     // so the browser can build a composes-of hierarchy without N round-trips.
     const include = (c.req.query('include') ?? '').split(',').map((s) => s.trim());
     const wantRels = include.includes('relationships');
-    requireWorkspace(c, workspaceId);
-
     const nodes = stratum
       ? c.var.repos.nodes.listByWorkspaceStratum(workspaceId, validateStratum(stratum))
       : c.var.repos.nodes.listByWorkspace(workspaceId);
@@ -45,10 +44,8 @@ export function nodeRoutes(): Hono<AppEnv> {
   // GET /workspaces/:id/nodes/:glm_id
   app.get('/workspaces/:id/nodes/:glm_id', (c) => {
     requirePrincipal(c);
-    const workspaceId = c.req.param('id');
-    const glmId = c.req.param('glm_id');
-    requireWorkspace(c, workspaceId);
-    const found = c.var.repos.nodes.findByGlmId(workspaceId, glmId);
+    const workspaceId = requireWorkspace(c, c.req.param('id')).id;
+    const glmId = c.req.param('glm_id');    const found = c.var.repos.nodes.findByGlmId(workspaceId, glmId);
     if (!found) throw httpError(404, `node ${glmId} not found in workspace ${workspaceId}`);
     return c.json(found);
   });
@@ -56,9 +53,7 @@ export function nodeRoutes(): Hono<AppEnv> {
   // POST /workspaces/:id/nodes
   app.post('/workspaces/:id/nodes', async (c) => {
     const principal = requirePrincipal(c);
-    const workspaceId = c.req.param('id');
-    requireWorkspace(c, workspaceId);
-
+    const workspaceId = requireWorkspace(c, c.req.param('id')).id;
     const body = (await c.req.json()) as Partial<NodeInput>;
     const id = body.id ?? randomUUID();
     const input = await buildNodeInput(body, { workspaceId, principalEmail: principal.user.email, defaultId: id });
@@ -90,10 +85,8 @@ export function nodeRoutes(): Hono<AppEnv> {
   // PUT /workspaces/:id/nodes/:glm_id
   app.put('/workspaces/:id/nodes/:glm_id', async (c) => {
     const principal = requirePrincipal(c);
-    const workspaceId = c.req.param('id');
+    const workspaceId = requireWorkspace(c, c.req.param('id')).id;
     const glmId = c.req.param('glm_id');
-    requireWorkspace(c, workspaceId);
-
     const existing = c.var.repos.nodes.findByGlmId(workspaceId, glmId);
     if (!existing) throw httpError(404, `node ${glmId} not found`);
     requireLockHolder(c, existing.node.id, principal.user.id);
@@ -136,10 +129,8 @@ export function nodeRoutes(): Hono<AppEnv> {
   // DELETE /workspaces/:id/nodes/:glm_id  → soft-delete (status = obsolete)
   app.delete('/workspaces/:id/nodes/:glm_id', (c) => {
     const principal = requirePrincipal(c);
-    const workspaceId = c.req.param('id');
+    const workspaceId = requireWorkspace(c, c.req.param('id')).id;
     const glmId = c.req.param('glm_id');
-    requireWorkspace(c, workspaceId);
-
     const existing = c.var.repos.nodes.findByGlmId(workspaceId, glmId);
     if (!existing) throw httpError(404, `node ${glmId} not found`);
 
@@ -169,10 +160,8 @@ export function nodeRoutes(): Hono<AppEnv> {
   // GET /workspaces/:id/nodes/:glm_id/where-used
   app.get('/workspaces/:id/nodes/:glm_id/where-used', (c) => {
     requirePrincipal(c);
-    const workspaceId = c.req.param('id');
-    const glmId = c.req.param('glm_id');
-    requireWorkspace(c, workspaceId);
-    const all = c.var.repos.nodes.listByWorkspace(workspaceId);
+    const workspaceId = requireWorkspace(c, c.req.param('id')).id;
+    const glmId = c.req.param('glm_id');    const all = c.var.repos.nodes.listByWorkspace(workspaceId);
     const result = whereUsed(
       glmId,
       all.map((n) => ({ node: n.node, relationships: n.relationships })),
@@ -183,10 +172,8 @@ export function nodeRoutes(): Hono<AppEnv> {
   // POST /workspaces/:id/nodes/:glm_id/lock
   app.post('/workspaces/:id/nodes/:glm_id/lock', (c) => {
     const principal = requirePrincipal(c);
-    const workspaceId = c.req.param('id');
-    const glmId = c.req.param('glm_id');
-    requireWorkspace(c, workspaceId);
-    const node = c.var.repos.nodes.findByGlmId(workspaceId, glmId);
+    const workspaceId = requireWorkspace(c, c.req.param('id')).id;
+    const glmId = c.req.param('glm_id');    const node = c.var.repos.nodes.findByGlmId(workspaceId, glmId);
     if (!node) throw httpError(404, `node ${glmId} not found`);
 
     const { granted, lock } = c.var.repos.locks.acquire(
@@ -212,10 +199,8 @@ export function nodeRoutes(): Hono<AppEnv> {
   // PUT /workspaces/:id/nodes/:glm_id/lock/heartbeat
   app.put('/workspaces/:id/nodes/:glm_id/lock/heartbeat', (c) => {
     const principal = requirePrincipal(c);
-    const workspaceId = c.req.param('id');
-    const glmId = c.req.param('glm_id');
-    requireWorkspace(c, workspaceId);
-    const node = c.var.repos.nodes.findByGlmId(workspaceId, glmId);
+    const workspaceId = requireWorkspace(c, c.req.param('id')).id;
+    const glmId = c.req.param('glm_id');    const node = c.var.repos.nodes.findByGlmId(workspaceId, glmId);
     if (!node) throw httpError(404, `node ${glmId} not found`);
 
     const ok = c.var.repos.locks.heartbeat(node.node.id, principal.user.id, c.var.deps.clock());
@@ -227,10 +212,8 @@ export function nodeRoutes(): Hono<AppEnv> {
   // DELETE /workspaces/:id/nodes/:glm_id/lock
   app.delete('/workspaces/:id/nodes/:glm_id/lock', (c) => {
     const principal = requirePrincipal(c);
-    const workspaceId = c.req.param('id');
-    const glmId = c.req.param('glm_id');
-    requireWorkspace(c, workspaceId);
-    const node = c.var.repos.nodes.findByGlmId(workspaceId, glmId);
+    const workspaceId = requireWorkspace(c, c.req.param('id')).id;
+    const glmId = c.req.param('glm_id');    const node = c.var.repos.nodes.findByGlmId(workspaceId, glmId);
     if (!node) throw httpError(404, `node ${glmId} not found`);
 
     const released = c.var.repos.locks.release(node.node.id, principal.user.id);
@@ -254,11 +237,6 @@ export function nodeRoutes(): Hono<AppEnv> {
 function validateStratum(s: string): Stratum {
   if (!STRATA.includes(s as Stratum)) throw httpError(400, `unknown stratum '${s}'`);
   return s as Stratum;
-}
-
-function requireWorkspace(c: { var: AppEnv['Variables'] }, workspaceId: string): void {
-  const ws = c.var.repos.workspaces.findById(workspaceId);
-  if (!ws) throw httpError(404, `workspace ${workspaceId} not found`);
 }
 
 function requireLockHolder(c: { var: AppEnv['Variables'] }, nodeId: string, userId: string): void {
