@@ -18,6 +18,7 @@ build/
 # Runtime data
 data/
 repos/
+logs/
 todo-mvc/src/data/
 *.db
 *.db-shm
