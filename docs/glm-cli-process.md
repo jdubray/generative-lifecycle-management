@@ -63,13 +63,22 @@ safe.
 
 ## Phase 1 — Vibe to a sekkei (high-touch loop)
 
-A tight loop, not one shot:
+A tight loop, not one shot. Two ways to author:
 
-1. **Seed it.**
-   `glm vibe --slug myproj --namespace acme:myproj --description "<elevator pitch + capabilities + stack>"`
-   (or `--description-file`). Authors the System -> Capability -> Component
-   skeleton. Brownfield variant: add `--from-dir <path>` to reverse-engineer the
-   sekkei from existing code first.
+- **In-session, node-by-node (preferred for collaboration).** Stay in your
+  Claude Code session: it calls `glm_create_workspace`, then `glm_create_node`
+  for each node (System → Capabilities → Components → Interactions → Specs) as
+  you discuss them. No `glm vibe` / `claude -p` subprocess. Every create
+  publishes `node.changed`, so the GLM dashboard (`http://localhost:3300/`)
+  updates in near-real-time — you watch the sekkei take shape and steer as you go.
+- **Headless seed.** `glm vibe --slug myproj --namespace acme:myproj
+  --description "<pitch + capabilities + stack>"` (or `--description-file`)
+  spawns `claude -p` to draft the whole skeleton in one shot. Brownfield variant:
+  add `--from-dir <path>` to reverse-engineer from existing code.
+
+Then, however you seeded it:
+
+1. **See the tree.** `/glm-status` / `/glm-list-components`.
 2. **See where you stand.** `/glm-verify` (or `glm verify --verbose`). Early on
    it fails gate 5 hard — expected. (Reference: the `glm-self` workspace has 66
    components and 0 specs, so it reports 66 gate-5 failures.)

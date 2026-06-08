@@ -60,8 +60,6 @@ After copying, restart Claude Code (or run `/reload`) and the commands become av
 
 ## Available MCP tools
 
-Phases A–D land all eight tools:
-
 | Tool | Purpose |
 |---|---|
 | `glm_status` | Workspace summary (counts, last verifier run) |
@@ -72,6 +70,10 @@ Phases A–D land all eight tools:
 | `glm_run_acceptance_verifier` | Run a component's `verifier.command` with cwd = source_dir |
 | `glm_record_generation` | Attest a completed generation (provenance + audit) |
 | `glm_apply_patch` | Apply RFC-6902 JSON-Patch to a node body |
+| `glm_create_workspace` | Create a new, empty workspace to author a sekkei into |
+| `glm_create_node` | Author one node (envelope + body + composes-of/depends-on edges) — the in-session authoring primitive; publishes `node.changed` so an open dashboard updates live |
+
+The last two enable **100% in-session authoring**: a Claude Code session creates the workspace and writes the sekkei node-by-node — no `glm vibe` / `claude -p` subprocess — while the user watches the GLM dashboard update in near-real-time.
 
 ## Auth
 

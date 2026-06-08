@@ -35,6 +35,35 @@ export interface WorkspaceSummary {
   activity?: unknown[];
 }
 
+export interface CreatedWorkspace {
+  id: string;
+  slug: string;
+  name: string;
+  createdAt?: string;
+}
+
+/**
+ * Shape accepted by `POST /workspaces/:id/nodes`. Mirrors the server's
+ * `Partial<NodeInput>` — the envelope plus the supporting rows. `relationships`
+ * carries composes-of / depends-on edges so a node can be authored, hierarchy
+ * and all, in a single call.
+ */
+export interface CreateNodeInput {
+  glmId: string;
+  stratum: 'system' | 'capability' | 'component' | 'interaction' | 'spec';
+  title: string;
+  description?: string;
+  body: unknown;
+  revisionMajor?: string;
+  revisionStatus?: string;
+  overrideKind?: string;
+  systemRole?: string | null;
+  specKind?: string | null;
+  relationships?: Array<{ kind: string; targetGlmId: string; ord?: number; attributes?: unknown }>;
+  parameters?: unknown[];
+  constraints?: unknown[];
+}
+
 export interface SekkeiNodeSummary {
   id: string;
   glmId: string;
@@ -141,6 +170,29 @@ export class GlmClient {
     return this.get<WorkspaceSummary>(
       `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/summary`,
     );
+  }
+
+  /** POST /api/v1/workspaces — create a new (empty) workspace. */
+  async createWorkspace(slug: string, name?: string): Promise<CreatedWorkspace> {
+    const { workspace } = await this.post<{ workspace: CreatedWorkspace }>('/api/v1/workspaces', {
+      slug,
+      name: name ?? slug,
+    });
+    return workspace;
+  }
+
+  /**
+   * POST /api/v1/workspaces/:id/nodes — create one sekkei node, including its
+   * relationships (composes-of / depends-on), so the tree can be authored
+   * node-by-node. The server publishes a `node.changed` event, so an open
+   * dashboard reflects the new node in near-real-time.
+   */
+  async createNode(workspaceId: string, node: CreateNodeInput): Promise<NodeWithChildren['node']> {
+    const { node: created } = await this.post<{ node: NodeWithChildren['node'] }>(
+      `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/nodes`,
+      node,
+    );
+    return created;
   }
 
   /**

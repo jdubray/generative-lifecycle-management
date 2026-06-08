@@ -12,6 +12,8 @@ import {
 } from './run-acceptance-verifier.ts';
 import { RecordGenerationInputSchema, runRecordGeneration } from './record-generation.ts';
 import { ApplyPatchInputSchema, runApplyPatch } from './apply-patch.ts';
+import { CreateWorkspaceInputSchema, runCreateWorkspace } from './create-workspace.ts';
+import { CreateNodeInputSchema, runCreateNode } from './create-node.ts';
 
 /**
  * Register every GLM tool against the provided MCP server instance. Kept
@@ -127,5 +129,34 @@ export function registerTools(
       inputSchema: ApplyPatchInputSchema,
     },
     async (args) => runApplyPatch(args, deps),
+  );
+
+  server.registerTool(
+    'glm_create_workspace',
+    {
+      title: 'Create a new GLM workspace',
+      description:
+        'Create a new, empty workspace to author a sekkei into. Use this to start a ' +
+        'brand-new project entirely from the Claude Code session (no `glm vibe` / ' +
+        '`claude -p` subprocess), then author nodes with glm_create_node.',
+      inputSchema: CreateWorkspaceInputSchema,
+    },
+    async (args) => runCreateWorkspace(args, deps),
+  );
+
+  server.registerTool(
+    'glm_create_node',
+    {
+      title: 'Author a sekkei node (in-session)',
+      description:
+        'Create one sekkei node — envelope + stratum-specific body + outbound ' +
+        'relationships (composes-of / depends-on edges) — directly from the ' +
+        'session. The in-session authoring primitive: shape the sekkei with the ' +
+        'user node-by-node; each call publishes a node.changed event so an open ' +
+        'GLM dashboard updates in near-real-time. Author top-down: System, then ' +
+        'Capabilities (composes-of from System), Components, Interactions, Specs.',
+      inputSchema: CreateNodeInputSchema,
+    },
+    async (args) => runCreateNode(args, deps),
   );
 }

@@ -52,9 +52,18 @@ green. For unattended runs wrap `/glm-build` in the `/loop` skill.
 
 ## Choosing a workflow
 
-- **Author a new sekkei from scratch** → run the authoring procedure below (or
-  `glm vibe` for an interactive Claude-driven session). Do NOT invent capabilities,
-  components, or FSM states the user hasn't described — boundaries must be honest.
+- **Author a new sekkei from scratch, in-session (preferred)** → create the
+  workspace with `glm_create_workspace`, then author nodes top-down with
+  `glm_create_node` (System → Capabilities w/ `composes-of` → Components →
+  Interactions → Specs). No `glm vibe` / `claude -p` subprocess — *you* are the
+  author, and each create publishes `node.changed` so the user's open dashboard
+  (`http://localhost:3300/`) updates live. Build it together, one node at a time,
+  pausing for the user's input. Then `/glm-verify` → `/glm-refine` → `/glm-ready`
+  → `/glm-build`. Do NOT invent capabilities, components, or FSM states the user
+  hasn't described — boundaries must be honest.
+- **Author headlessly / from a one-paragraph brief** → `glm vibe` (spawns
+  `claude -p`). Use when scripting or when you want a one-shot draft rather than
+  collaborative authoring.
 - **Reverse-engineer a sekkei from existing code** → `glm vibe --from-dir <path>`.
 - **Regenerate a component's code** → `/glm-generate <component_id>` (or
   `glm generate --component <id>`). This resolves the spec, writes exactly the files in
