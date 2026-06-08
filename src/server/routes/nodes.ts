@@ -59,7 +59,18 @@ export function nodeRoutes(): Hono<AppEnv> {
     const input = await buildNodeInput(body, { workspaceId, principalEmail: principal.user.email, defaultId: id });
     assertValidBody(input.stratum, input.body);
 
-    const node = c.var.repos.nodes.insert(input);
+    // Carry the supporting rows through on create: composes-of / depends-on
+    // relationships, parameters, constraints. buildNodeInput maps only the
+    // envelope, so without this a created node would have no edges — breaking
+    // the stratum-hierarchy and closure verifier gates and making node-by-node
+    // authoring impossible. The PUT/refine path edits the body only and is left
+    // untouched (it must not clobber existing relationships).
+    const node = c.var.repos.nodes.insert({
+      ...input,
+      parameters: body.parameters,
+      constraints: body.constraints,
+      relationships: body.relationships,
+    });
     c.var.repos.changeLog.append({
       workspaceId,
       nodeId: node.id,

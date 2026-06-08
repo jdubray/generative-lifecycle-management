@@ -47,6 +47,34 @@ describe('node REST routes', () => {
     expect(body.parameters).toEqual([]);
   });
 
+  test('POST persists relationships (composes-of edges) so node-by-node authoring works', async () => {
+    const res = await s.request('POST', '/api/v1/workspaces/ws-1/nodes', {
+      body: {
+        glmId: 'glm:capability.shop',
+        stratum: 'capability',
+        title: 'Shop',
+        body: { user_value: 'browse + buy' },
+        revisionMajor: 'A',
+        revisionIteration: 0,
+        revisionStatus: 'in_work',
+        overrideKind: 'net_new',
+        relationships: [
+          { ord: 0, kind: 'composes-of', targetGlmId: 'glm:component.cart', attributes: { find_number: '1.0' } },
+        ],
+      },
+    });
+    expect(res.status).toBe(201);
+    const got = await s.request('GET', '/api/v1/workspaces/ws-1/nodes/glm:capability.shop');
+    const payload = (await got.json()) as {
+      relationships: Array<{ kind: string; targetGlmId: string }>;
+    };
+    expect(payload.relationships).toHaveLength(1);
+    expect(payload.relationships[0]).toMatchObject({
+      kind: 'composes-of',
+      targetGlmId: 'glm:component.cart',
+    });
+  });
+
   test('GET list filters by stratum', async () => {
     await s.request('POST', '/api/v1/workspaces/ws-1/nodes', {
       body: {
