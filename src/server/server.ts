@@ -6,6 +6,7 @@ import {
   verifySession,
 } from '../auth/session.ts';
 import { openDb } from '../repository/db.ts';
+import { ensureSoloUser } from './middleware/auth.ts';
 import { makeWebSocketHandler, type SocketContext } from '../ws/workspace-socket.ts';
 import { createApp } from './app.ts';
 import { syncFromRemote } from '../git/sekkei-git-service.ts';
@@ -39,6 +40,16 @@ function authorizeUpgrade(req: Request, workspaceId: string): SocketContext | nu
   if (!workspace) return null;
 
   const bearer = readBearer(req.headers.get('authorization'));
+
+  // Solo-mode short-circuit (docs/solo-mode-spec.md §5.3) — same order as
+  // identify(): the solo token authorizes the upgrade before api-token
+  // lookup, so solo-mode clients (e.g. Puffin) can open workspace sockets.
+  const soloToken = process.env.GLM_SOLO_TOKEN;
+  if (bearer && soloToken && bearer === soloToken) {
+    const user = ensureSoloUser(deps.repos.users, deps.clock());
+    return { workspaceId, userId: user.id };
+  }
+
   if (bearer) {
     try {
       const row = validateApiToken(deps.repos.apiTokens, bearer, deps.clock());

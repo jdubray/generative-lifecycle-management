@@ -126,7 +126,7 @@ export function requirePrincipal(c: Context<AppEnv>): Principal {
  * inserts the row; subsequent calls return the existing one. Always returns
  * a `User` with role 'admin' so every workspace operation is permitted.
  */
-function ensureSoloUser(
+export function ensureSoloUser(
   users: Repositories['users'],
   clock: Date,
 ): User {
