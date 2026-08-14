@@ -1,0 +1,25 @@
+{
+  "name": "glm",
+  "owner": {
+    "name": "jdubray",
+    "url": "https://github.com/jdubray"
+  },
+  "metadata": {
+    "description": "GLM — sekkei authoring, verification and regeneration for Claude Code",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "glm",
+      "source": "./plugin",
+      "description": "Author, verify and regenerate sekkeis from any project. Talks to a running GLM server over MCP.",
+      "version": "0.1.0",
+      "author": {
+        "name": "jdubray",
+        "url": "https://github.com/jdubray/generative-lifecycle-management"
+      },
+      "homepage": "https://github.com/jdubray/generative-lifecycle-management",
+      "keywords": ["sekkei", "design", "codegen", "verification", "glm"]
+    }
+  ]
+}

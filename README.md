@@ -158,6 +158,45 @@ backup / restore / verify / hook-installer playbook, lives in
 
 ---
 
+## Use GLM from Claude Code (any project)
+
+GLM ships as a Claude Code plugin. Install it once and the authoring skill,
+the `/glm-*` commands and the MCP tools are available in **every** project —
+you author a sekkei from the repo you are actually building, not from this one.
+
+```
+/plugin marketplace add jdubray/generative-lifecycle-management
+/plugin install glm@glm
+```
+
+The plugin talks to a running GLM server over MCP on Streamable HTTP, so
+there is no subprocess to launch and no path to configure:
+
+```
+http://localhost:3300/mcp
+```
+
+Two environment variables in the session tune it:
+
+| Variable | Purpose |
+|---|---|
+| `GLM_SOLO_TOKEN` | Bearer token, sent as `Authorization`. Must match the value the server runs with |
+| `GLM_URL` | Server origin. Defaults to `http://localhost:3300` |
+
+Point tool calls at a workspace by default with `?workspace=<slug>` on the URL,
+or `GLM_WORKSPACE` on the server; otherwise pass `workspace` per call.
+
+The endpoint is stateless — one MCP server instance per request, no session to
+expire — and authenticates with the same bearer token, session cookie or RBAC
+as every other route, so a token that cannot write a workspace cannot write it
+through MCP either.
+
+> The stdio server (`integrations/mcp`) still exists and still works. It has no
+> availability advantage — its tools call the GLM server over HTTP regardless —
+> so prefer the HTTP endpoint unless you are debugging the MCP layer itself.
+
+---
+
 ## What is a sekkei?
 
 A sekkei is a five-stratum DAG:

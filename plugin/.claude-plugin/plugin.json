@@ -1,0 +1,11 @@
+{
+  "name": "glm",
+  "version": "0.1.0",
+  "description": "Author, verify and regenerate sekkeis — content-addressed design DAGs that agents rebuild into working software. Bundles the GLM authoring skill, the glm-* commands, and the MCP tools served by a running GLM server.",
+  "author": {
+    "name": "jdubray",
+    "url": "https://github.com/jdubray/generative-lifecycle-management"
+  },
+  "homepage": "https://github.com/jdubray/generative-lifecycle-management",
+  "keywords": ["sekkei", "design", "codegen", "verification", "glm"]
+}
