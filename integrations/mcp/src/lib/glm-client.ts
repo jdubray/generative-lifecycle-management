@@ -328,6 +328,55 @@ export class GlmClient {
     return node;
   }
 
+  /**
+   * PUT /api/v1/workspaces/:id/nodes/:glm_id
+   *
+   * Replace any part of an existing node — envelope, body, and the three child
+   * collections. Fields left out of `patch` keep their stored values, including
+   * relationships / parameters / constraints. Pass `glmId` to rename a node.
+   */
+  async updateNode(
+    workspaceId: string,
+    glmId: string,
+    patch: Partial<CreateNodeInput>,
+  ): Promise<NodeWithChildren['node']> {
+    const { node } = await this.request<{ node: NodeWithChildren['node'] }>(
+      'PUT',
+      `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/nodes/${encodeURIComponent(glmId)}`,
+      patch,
+    );
+    return node;
+  }
+
+  /**
+   * DELETE /api/v1/workspaces/:id/nodes/:glm_id[?hard=true]
+   *
+   * Soft by default (revision_status = obsolete, row retained). `hard` removes
+   * the row and every edge pointing at it, freeing the glm_id and content_hash
+   * for re-authoring.
+   */
+  async deleteNode(
+    workspaceId: string,
+    glmId: string,
+    opts: { hard?: boolean } = {},
+  ): Promise<{ hard: boolean; inboundEdgesRemoved?: number; revisionStatus?: string }> {
+    const query = opts.hard ? '?hard=true' : '';
+    const result = await this.request<{
+      deleted?: string;
+      hard?: boolean;
+      inboundEdgesRemoved?: number;
+      node?: { revisionStatus: string };
+    }>(
+      'DELETE',
+      `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/nodes/${encodeURIComponent(glmId)}${query}`,
+    );
+    return {
+      hard: result.hard === true,
+      inboundEdgesRemoved: result.inboundEdgesRemoved,
+      revisionStatus: result.node?.revisionStatus,
+    };
+  }
+
   // ----------------------------------------------------------------- core
 
   private async get<T>(path: string): Promise<T> {

@@ -1,19 +1,21 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { GlmClient } from '../lib/glm-client.ts';
 import type { ResolvedConfig } from '../lib/config.ts';
-import { runStatus, StatusInputSchema } from './status.ts';
-import { ListComponentsInputSchema, runListComponents } from './list-components.ts';
-import { GetNodeInputSchema, runGetNode } from './get-node.ts';
+import type { GlmClient } from '../lib/glm-client.ts';
+import { ApplyPatchInputSchema, runApplyPatch } from './apply-patch.ts';
+import { CreateNodeInputSchema, runCreateNode } from './create-node.ts';
+import { CreateWorkspaceInputSchema, runCreateWorkspace } from './create-workspace.ts';
+import { DeleteNodeInputSchema, runDeleteNode } from './delete-node.ts';
 import { GetComponentSpecInputSchema, runGetComponentSpec } from './get-component-spec.ts';
-import { runVerify, VerifyInputSchema } from './verify.ts';
+import { GetNodeInputSchema, runGetNode } from './get-node.ts';
+import { ListComponentsInputSchema, runListComponents } from './list-components.ts';
+import { RecordGenerationInputSchema, runRecordGeneration } from './record-generation.ts';
 import {
   RunAcceptanceVerifierInputSchema,
   runRunAcceptanceVerifier,
 } from './run-acceptance-verifier.ts';
-import { RecordGenerationInputSchema, runRecordGeneration } from './record-generation.ts';
-import { ApplyPatchInputSchema, runApplyPatch } from './apply-patch.ts';
-import { CreateWorkspaceInputSchema, runCreateWorkspace } from './create-workspace.ts';
-import { CreateNodeInputSchema, runCreateNode } from './create-node.ts';
+import { StatusInputSchema, runStatus } from './status.ts';
+import { UpdateNodeInputSchema, runUpdateNode } from './update-node.ts';
+import { VerifyInputSchema, runVerify } from './verify.ts';
 
 /**
  * Register every GLM tool against the provided MCP server instance. Kept
@@ -122,7 +124,7 @@ export function registerTools(
       title: 'Apply an RFC-6902 JSON Patch to a sekkei node body',
       description:
         'Patch a node body with one or more JSON-Patch ops (add / remove / replace / move). ' +
-        "The MCP server fetches the current node, applies the patch locally, " +
+        'The MCP server fetches the current node, applies the patch locally, ' +
         'acquires the edit lock, PUTs the new body, and releases the lock. ' +
         'Used by refine flows when Claude knows what to change but rewriting the ' +
         'whole body would be wasteful.',
@@ -158,5 +160,37 @@ export function registerTools(
       inputSchema: CreateNodeInputSchema,
     },
     async (args) => runCreateNode(args, deps),
+  );
+
+  server.registerTool(
+    'glm_update_node',
+    {
+      title: 'Revise an existing sekkei node',
+      description:
+        'Update a node in place — title, description, body, stratum, spec_kind, ' +
+        'system_role, revision, and the graph wiring (relationships / parameters / ' +
+        'constraints). Fields you omit keep their stored values; collections you ' +
+        'supply replace the stored ones wholesale. Pass new_glm_id to rename or ' +
+        're-home a node. Use this to fix a mis-wired composes-of edge, which ' +
+        'glm_apply_patch cannot reach (it edits body only) and glm_create_node ' +
+        'cannot do (the glm_id already exists).',
+      inputSchema: UpdateNodeInputSchema,
+    },
+    async (args) => runUpdateNode(args, deps),
+  );
+
+  server.registerTool(
+    'glm_delete_node',
+    {
+      title: 'Retire or remove a sekkei node',
+      description:
+        'Delete a node. By default this is a soft delete: revision_status becomes ' +
+        'obsolete and the row, its history and its edges are kept. Pass hard=true to ' +
+        'remove the row outright and sweep every edge pointing at it — needed when a ' +
+        'node was created in error, since a retained row keeps its glm_id and ' +
+        'content_hash reserved and blocks re-authoring. Hard deletes are irreversible.',
+      inputSchema: DeleteNodeInputSchema,
+    },
+    async (args) => runDeleteNode(args, deps),
   );
 }

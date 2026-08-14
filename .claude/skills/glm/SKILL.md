@@ -61,6 +61,18 @@ green. For unattended runs wrap `/glm-build` in the `/loop` skill.
   pausing for the user's input. Then `/glm-verify` → `/glm-refine` → `/glm-ready`
   → `/glm-build`. Do NOT invent capabilities, components, or FSM states the user
   hasn't described — boundaries must be honest.
+- **Fix a node you already authored** → `glm_update_node`. It revises the
+  envelope, body, stratum and the graph wiring in one call; omitted fields keep
+  their stored values, and `new_glm_id` renames or re-homes a node.
+  `glm_apply_patch` only reaches into `body`, so it cannot repair an edge.
+  To remove a node created in error, `glm_delete_node` with `hard=true` — a soft
+  delete keeps the row, and with it the glm_id and content_hash, so re-authoring
+  the same node would collide.
+
+  Two structural rules worth getting right the first time: `composes-of` is
+  directed **parent → child** and lives on the parent, and a component's specs
+  must be named `<component>.spec.<kind>` — gate 5 attributes specs by dotted
+  glm_id prefix, never by edge.
 - **Author headlessly / from a one-paragraph brief** → `glm vibe` (spawns
   `claude -p`). Use when scripting or when you want a one-shot draft rather than
   collaborative authoring.

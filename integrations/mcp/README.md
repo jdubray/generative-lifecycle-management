@@ -72,8 +72,15 @@ After copying, restart Claude Code (or run `/reload`) and the commands become av
 | `glm_apply_patch` | Apply RFC-6902 JSON-Patch to a node body |
 | `glm_create_workspace` | Create a new, empty workspace to author a sekkei into |
 | `glm_create_node` | Author one node (envelope + body + composes-of/depends-on edges) — the in-session authoring primitive; publishes `node.changed` so an open dashboard updates live |
+| `glm_update_node` | Revise a node in place: envelope, body, stratum, and the graph wiring. Omitted fields keep their stored values; supplied collections replace them. `new_glm_id` renames/re-homes |
+| `glm_delete_node` | Retire a node (soft, `revision_status = obsolete`) or remove it outright (`hard=true`, sweeps inbound edges and frees the glm_id) |
 
-The last two enable **100% in-session authoring**: a Claude Code session creates the workspace and writes the sekkei node-by-node — no `glm vibe` / `claude -p` subprocess — while the user watches the GLM dashboard update in near-real-time.
+Together these enable **100% in-session authoring**: a Claude Code session creates the workspace and writes the sekkei node-by-node — no `glm vibe` / `claude -p` subprocess — while the user watches the GLM dashboard update in near-real-time.
+
+`glm_update_node` and `glm_delete_node` are the repair primitives. `glm_apply_patch`
+reaches only into a node's `body`, and `glm_create_node` cannot touch a glm_id that
+already exists, so without them a session that mis-wired the tree — pointing
+`composes-of` at the parent, say — had no way to correct itself.
 
 ## Auth
 
