@@ -40,11 +40,22 @@ function main(): void {
   const args = parseArgs(process.argv);
   const db = new Database(args.dbPath, { readonly: true });
   const nodes = new NodeRepository(db).listByWorkspace(args.workspace);
-  const { gates, overallPass } = runGates({ nodes, sourceDir: null });
+
+  // Gate 7 type-checks the workspace's generated source tree, and skips itself
+  // (passing) when there is no source_dir. Passing null unconditionally would
+  // therefore report a better score than the server does — a skipped gate reads
+  // exactly like a passed one in the summary line.
+  const row = db
+    .query('SELECT source_dir FROM workspaces WHERE id = ?1 OR slug = ?1')
+    .get(args.workspace) as { source_dir: string | null } | undefined;
+  const sourceDir = row?.source_dir ?? null;
+
+  const { gates, overallPass } = runGates({ nodes, sourceDir });
 
   const passed = gates.filter((g) => g.passed).length;
   console.log(
-    `${overallPass ? 'PASS' : 'FAIL'} (${passed}/${gates.length} gates) over ${nodes.length} nodes\n`,
+    `${overallPass ? 'PASS' : 'FAIL'} (${passed}/${gates.length} gates) over ${nodes.length} nodes` +
+      `\nsource_dir: ${sourceDir ?? '(none — gate 7 will skip)'}\n`,
   );
   for (const g of gates) {
     const count = g.issues.length > 0 ? `  (${g.issues.length} issues)` : '';
