@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { validateBody } from '../domain/node.ts';
 import type {
   NodeConstraint,
   NodeParameter,
@@ -7,7 +8,6 @@ import type {
   SekkeiNode,
   Stratum,
 } from '../types.ts';
-import { validateBody } from '../domain/node.ts';
 
 /**
  * Six-gate sekkei verifier (spec §6.6, gate 2.b from v1.1.9).
@@ -52,8 +52,14 @@ export interface VerifierResult {
   overallPass: boolean;
 }
 
-const ALLOWED_CHILDREN: Record<Stratum, Set<Stratum>> = {
-  system: new Set(['system', 'capability'] as Stratum[]),
+/** Which strata each stratum may `composes-of`. Exported for repair tooling. */
+export const ALLOWED_CHILDREN: Record<Stratum, Set<Stratum>> = {
+  // A System may compose Specs directly: cross-cutting material that belongs
+  // to no single Capability — NFRs, system boundaries, end-to-end acceptance
+  // demos. Gate 5 still requires the four per-component spec kinds, which it
+  // attributes by dotted glm_id prefix, so a system-scope spec never stands in
+  // for a component's own.
+  system: new Set(['system', 'capability', 'spec'] as Stratum[]),
   capability: new Set(['component', 'interaction', 'spec'] as Stratum[]),
   component: new Set(['interaction', 'spec'] as Stratum[]),
   interaction: new Set(['spec'] as Stratum[]),
@@ -70,7 +76,12 @@ const VALID_REVISION_STATUS = new Set([
 
 const VALID_OVERRIDE_KIND = new Set(['net_new', 'derives-from', 'refines']);
 
-const REQUIRED_SPEC_KINDS_PER_COMPONENT = ['functional', 'technical', 'acceptance', 'prompt'] as const;
+const REQUIRED_SPEC_KINDS_PER_COMPONENT = [
+  'functional',
+  'technical',
+  'acceptance',
+  'prompt',
+] as const;
 
 // ---------------------------------------------------------------------------
 // Composition
@@ -175,14 +186,18 @@ export function gate2bRoleConsistency(nodes: NodeRecord[]): GateResult {
     if (role === 'root') {
       rootCount++;
       if (isComposed) {
-        issues.push(`${r.node.glmId}: declares system_role=root but is composed-of by another System`);
+        issues.push(
+          `${r.node.glmId}: declares system_role=root but is composed-of by another System`,
+        );
       }
       if (!('acceptance_gate' in (body ?? {}))) {
         issues.push(`${r.node.glmId}: system_role=root requires body.acceptance_gate`);
       }
     } else if (role === 'subsystem') {
       if (!isComposed) {
-        issues.push(`${r.node.glmId}: declares system_role=subsystem but is NOT composed-of by any System`);
+        issues.push(
+          `${r.node.glmId}: declares system_role=subsystem but is NOT composed-of by any System`,
+        );
       }
       if (body && body.dbom_ref !== undefined && body.dbom_ref !== null) {
         issues.push(`${r.node.glmId}: system_role=subsystem requires body.dbom_ref=null`);
@@ -264,7 +279,7 @@ export function gate5SpecCoverage(nodes: NodeRecord[]): GateResult {
     let best: string | null = null;
     for (const comp of components) {
       const cid = comp.node.glmId;
-      if ((r.node.glmId.startsWith(`${cid}.spec`) || r.node.glmId.startsWith(`${cid}.spec_`))) {
+      if (r.node.glmId.startsWith(`${cid}.spec`) || r.node.glmId.startsWith(`${cid}.spec_`)) {
         if (best === null || cid.length > best.length) best = cid;
       }
     }
@@ -375,7 +390,8 @@ export function gate7IntegrationCheck(
   const prereqIssues: string[] = [];
   if (!existsSync(packageJson)) prereqIssues.push('missing package.json at source_dir');
   if (!existsSync(tsconfigJson)) prereqIssues.push('missing tsconfig.json at source_dir');
-  if (!existsSync(tscBin)) prereqIssues.push('missing node_modules/.bin/tsc — run `bun install` or `npm install` first');
+  if (!existsSync(tscBin))
+    prereqIssues.push('missing node_modules/.bin/tsc — run `bun install` or `npm install` first');
 
   if (prereqIssues.length > 0) {
     return { name, passed: false, issues: prereqIssues };
@@ -394,9 +410,10 @@ export function gate7IntegrationCheck(
     return { name, passed: true, issues: [] };
   }
 
-  const stderrText = proc.stderr instanceof Buffer
-    ? proc.stderr.toString('utf8')
-    : new TextDecoder().decode(proc.stderr);
+  const stderrText =
+    proc.stderr instanceof Buffer
+      ? proc.stderr.toString('utf8')
+      : new TextDecoder().decode(proc.stderr);
   const lines = stderrText.split('\n').filter((l) => l.trim().length > 0);
   const truncated = lines.length > TSC_STDERR_LINE_LIMIT;
   const issues = lines.slice(0, TSC_STDERR_LINE_LIMIT);

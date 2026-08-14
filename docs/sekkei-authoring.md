@@ -401,7 +401,7 @@ A sekkei is **authored** when all 6 gates pass (via `verify_sekkei.py`):
 | # | Gate | What It Checks |
 |---|------|----------------|
 | 1 | **Envelope** | id, stratum, title, revision (major ∈ Y14.35 set, status ∈ enum), provenance, spec_kind |
-| 2 | **Stratum hierarchy** | Every `composes-of` respects the parent→child table (system→capability, capability→component, component→interaction, interaction→spec) |
+| 2 | **Stratum hierarchy** | Every `composes-of` respects the parent→child table (system→system\|capability\|spec, capability→component\|interaction\|spec, component→interaction\|spec, interaction→spec; a Spec composes nothing). Edges are directed **parent→child** — the edge lives on the parent |
 | 2b | **Role consistency** | Exactly 1 root; root not composed-of; subsystem composed-of; root has acceptance_gate; subsystem has dbom_ref=null |
 | 3 | **Closure completeness** | Every `kizo:` target in composes-of/depends-on resolves to an authored node or known PURLscheme |
 | 4 | **Brief coverage** | All required named nodes present (project-specific list) |
@@ -434,7 +434,7 @@ Work through each step; tick off when complete before advancing.
 - [ ] **3. Capabilities** — One file per Capability in `nodes/capabilities/`; include `user_value` + `boundary`; add `composes-of` for each Component
 - [ ] **4. Components** — One file per Component in `nodes/components/`; fill `boundary`, `runtime`, `realization_file`; add `composes-of` for each Interaction
 - [ ] **5. Interactions** — Author FSMs and contracts in `nodes/interactions/`; read states verbatim from source (§10.3)
-- [ ] **6. Specs** — For each Component, author all 6 spec kinds in `nodes/specs/by_component/<component>_specs.yaml`
+- [ ] **6. Specs** — For each Component, author all 6 spec kinds in `nodes/specs/by_component/<component>_specs.yaml`. Cross-cutting material that belongs to no single Capability (NFRs, system boundaries, end-to-end acceptance demos) may hang off the root System as a system-scope spec; it does **not** count toward any Component's gate-5 coverage
 - [ ] **7. External deps** — Enumerate `depends-on` relationships with PURL targets in `nodes/` (or inline on the owning node)
 - [ ] **8. Parameters & constraints** — Declare on the lowest-common-ancestor stratum; add CEL constraints
 - [ ] **9. Verify** — Run `python verify_sekkei.py` (or `bun run verify`); fix all gate failures before declaring the sekkei authored
@@ -444,6 +444,8 @@ Work through each step; tick off when complete before advancing.
 
 ## 14. Common Mistakes to Avoid
 
+- **Pointing `composes-of` at the parent.** The edge is directed parent→child and lives on the *parent* node: a Component lists its Interactions and Specs, not the Capability it belongs to. Authoring it the other way round fails gate 2 on every edge at once.
+- **Naming a Component's specs after its Interaction.** Gate 5 attributes a spec to a Component by dotted glm_id prefix (`<component>.spec.<kind>`), never by edge — `<component>.<interaction>.spec.functional` leaves the Component with zero coverage no matter how it is wired.
 - **Inventing FSM states not in the source code.** Check the realization file first.
 - **Writing acceptance specs as prose.** They must list `deliverables[].path` and `verifier.command`.
 - **Omitting the "Does NOT own" clause** from boundary descriptions. Regenerators cannot infer ownership from silence.

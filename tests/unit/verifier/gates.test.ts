@@ -1,17 +1,17 @@
 import { describe, expect, test } from 'bun:test';
 import { contentHash } from '../../../src/domain/content-hash.ts';
+import type { NodeRelationship, SekkeiNode, Stratum } from '../../../src/types.ts';
 import {
+  type NodeRecord,
   gate1Envelope,
-  gate2bRoleConsistency,
   gate2StratumHierarchy,
+  gate2bRoleConsistency,
   gate3ClosureCompleteness,
   gate4BriefCoverage,
   gate5SpecCoverage,
   gate6SpecQuality,
   runGates,
-  type NodeRecord,
 } from '../../../src/verifier/gates.ts';
-import type { NodeRelationship, SekkeiNode, Stratum } from '../../../src/types.ts';
 
 interface MkOpts {
   body?: object;
@@ -101,7 +101,9 @@ describe('gate 1 — envelope', () => {
 describe('gate 2 — stratum hierarchy', () => {
   test('component composes-of interaction is allowed', () => {
     const records = [
-      record(mkNode('glm:component.x'), [rel('glm:component.x', 'glm:interaction.y', 'composes-of')]),
+      record(mkNode('glm:component.x'), [
+        rel('glm:component.x', 'glm:interaction.y', 'composes-of'),
+      ]),
       record(mkNode('glm:interaction.y', { stratum: 'interaction' })),
     ];
     expect(gate2StratumHierarchy(records).passed).toBe(true);
@@ -109,8 +111,35 @@ describe('gate 2 — stratum hierarchy', () => {
 
   test('component composes-of capability is rejected', () => {
     const records = [
-      record(mkNode('glm:component.x'), [rel('glm:component.x', 'glm:capability.y', 'composes-of')]),
+      record(mkNode('glm:component.x'), [
+        rel('glm:component.x', 'glm:capability.y', 'composes-of'),
+      ]),
       record(mkNode('glm:capability.y', { stratum: 'capability' })),
+    ];
+    const r = gate2StratumHierarchy(records);
+    expect(r.passed).toBe(false);
+    expect(r.issues[0]).toContain('STRATUM VIOLATION');
+  });
+
+  // System-scope specs carry the cross-cutting material that belongs to no
+  // single Capability — NFRs, system boundaries, end-to-end acceptance demos.
+  // Every other non-leaf stratum may compose a Spec; System may too.
+  test('system composes-of spec is allowed', () => {
+    const records = [
+      record(mkNode('glm:system.app', { stratum: 'system', systemRole: 'root' }), [
+        rel('glm:system.app', 'glm:system.app.spec.nfr', 'composes-of'),
+      ]),
+      record(mkNode('glm:system.app.spec.nfr', { stratum: 'spec', specKind: 'technical' })),
+    ];
+    expect(gate2StratumHierarchy(records).passed).toBe(true);
+  });
+
+  test('spec composes-of anything is still rejected', () => {
+    const records = [
+      record(mkNode('glm:system.app.spec.nfr', { stratum: 'spec', specKind: 'technical' }), [
+        rel('glm:system.app.spec.nfr', 'glm:system.app', 'composes-of'),
+      ]),
+      record(mkNode('glm:system.app', { stratum: 'system', systemRole: 'root' })),
     ];
     const r = gate2StratumHierarchy(records);
     expect(r.passed).toBe(false);
@@ -140,7 +169,9 @@ describe('gate 2.b — role consistency', () => {
     ];
     const r = gate2bRoleConsistency(records);
     expect(r.passed).toBe(false);
-    expect(r.issues.some((i) => i.includes('IS composed-of') || i.includes('is composed-of'))).toBe(true);
+    expect(r.issues.some((i) => i.includes('IS composed-of') || i.includes('is composed-of'))).toBe(
+      true,
+    );
   });
 
   test('a subsystem that is not composed-of any system fails', () => {
@@ -180,7 +211,9 @@ describe('gate 3 — closure completeness', () => {
 
   test('fails on a dangling reference', () => {
     const records = [
-      record(mkNode('glm:component.x'), [rel('glm:component.x', 'glm:component.missing', 'depends-on')]),
+      record(mkNode('glm:component.x'), [
+        rel('glm:component.x', 'glm:component.missing', 'depends-on'),
+      ]),
     ];
     const r = gate3ClosureCompleteness(records);
     expect(r.passed).toBe(false);
@@ -234,7 +267,13 @@ describe('gate 5 — spec coverage', () => {
             kind === 'acceptance'
               ? { spec_kind: kind, content: 'a', deliverables: [], verifier: 'cmd' }
               : kind === 'prompt'
-                ? { spec_kind: kind, content: 'p', context_bundle: [], outputs: [], verifier: 'cmd' }
+                ? {
+                    spec_kind: kind,
+                    content: 'p',
+                    context_bundle: [],
+                    outputs: [],
+                    verifier: 'cmd',
+                  }
                 : { spec_kind: kind, content: 'x' },
         }),
       ),
@@ -323,11 +362,12 @@ describe('gate 6 — spec quality', () => {
       mkNode(`glm:component.x.spec_${sk}`, {
         stratum: 'spec',
         specKind: sk,
-        body: sk === 'acceptance'
-          ? { deliverables: [], verifier: 'cmd' }
-          : sk === 'prompt'
-            ? { context_bundle: 'cb', outputs: [], verifier: 'cmd' }
-            : {},
+        body:
+          sk === 'acceptance'
+            ? { deliverables: [], verifier: 'cmd' }
+            : sk === 'prompt'
+              ? { context_bundle: 'cb', outputs: [], verifier: 'cmd' }
+              : {},
       }),
     );
     // No scaffold node — should still pass gate 5
