@@ -1,10 +1,10 @@
-import { Hono } from 'hono';
 import { randomUUID } from 'node:crypto';
-import { whereUsed } from '../../domain/relationships.ts';
+import { Hono } from 'hono';
 import { assertValidBody } from '../../domain/node.ts';
-import type { NodeInput } from '../../repository/node-repository.ts';
+import { whereUsed } from '../../domain/relationships.ts';
+import type { NodeInput, NodeWithChildren } from '../../repository/node-repository.ts';
 import type { SekkeiNode, Stratum } from '../../types.ts';
-import { requirePrincipal, type AppEnv } from '../middleware/auth.ts';
+import { type AppEnv, requirePrincipal } from '../middleware/auth.ts';
 import { httpError } from '../middleware/error.ts';
 import { requireWorkspace } from './_workspace.ts';
 
@@ -26,15 +26,16 @@ export function nodeRoutes(): Hono<AppEnv> {
     const nodes = stratum
       ? c.var.repos.nodes.listByWorkspaceStratum(workspaceId, validateStratum(stratum))
       : c.var.repos.nodes.listByWorkspace(workspaceId);
-    const filtered = status
-      ? nodes.filter((n) => n.node.revisionStatus === status)
-      : nodes;
+    const filtered = status ? nodes.filter((n) => n.node.revisionStatus === status) : nodes;
     return c.json({
       nodes: filtered.map((n) =>
         wantRels
           ? {
               ...n.node,
-              relationships: n.relationships.map((r) => ({ kind: r.kind, targetGlmId: r.targetGlmId })),
+              relationships: n.relationships.map((r) => ({
+                kind: r.kind,
+                targetGlmId: r.targetGlmId,
+              })),
             }
           : n.node,
       ),
@@ -45,7 +46,8 @@ export function nodeRoutes(): Hono<AppEnv> {
   app.get('/workspaces/:id/nodes/:glm_id', (c) => {
     requirePrincipal(c);
     const workspaceId = requireWorkspace(c, c.req.param('id')).id;
-    const glmId = c.req.param('glm_id');    const found = c.var.repos.nodes.findByGlmId(workspaceId, glmId);
+    const glmId = c.req.param('glm_id');
+    const found = c.var.repos.nodes.findByGlmId(workspaceId, glmId);
     if (!found) throw httpError(404, `node ${glmId} not found in workspace ${workspaceId}`);
     return c.json(found);
   });
@@ -56,21 +58,14 @@ export function nodeRoutes(): Hono<AppEnv> {
     const workspaceId = requireWorkspace(c, c.req.param('id')).id;
     const body = (await c.req.json()) as Partial<NodeInput>;
     const id = body.id ?? randomUUID();
-    const input = await buildNodeInput(body, { workspaceId, principalEmail: principal.user.email, defaultId: id });
+    const input = await buildNodeInput(body, {
+      workspaceId,
+      principalEmail: principal.user.email,
+      defaultId: id,
+    });
     assertValidBody(input.stratum, input.body);
 
-    // Carry the supporting rows through on create: composes-of / depends-on
-    // relationships, parameters, constraints. buildNodeInput maps only the
-    // envelope, so without this a created node would have no edges — breaking
-    // the stratum-hierarchy and closure verifier gates and making node-by-node
-    // authoring impossible. The PUT/refine path edits the body only and is left
-    // untouched (it must not clobber existing relationships).
-    const node = c.var.repos.nodes.insert({
-      ...input,
-      parameters: body.parameters,
-      constraints: body.constraints,
-      relationships: body.relationships,
-    });
+    const node = c.var.repos.nodes.insert(input);
     c.var.repos.changeLog.append({
       workspaceId,
       nodeId: node.id,
@@ -110,6 +105,7 @@ export function nodeRoutes(): Hono<AppEnv> {
       defaultGlmId: existing.node.glmId,
       defaultStratum: existing.node.stratum,
       defaults: existing.node,
+      existing,
     });
     assertValidBody(input.stratum, input.body);
 
@@ -137,16 +133,52 @@ export function nodeRoutes(): Hono<AppEnv> {
     return c.json({ node: updated });
   });
 
-  // DELETE /workspaces/:id/nodes/:glm_id  → soft-delete (status = obsolete)
+  // DELETE /workspaces/:id/nodes/:glm_id            → soft-delete (obsolete)
+  // DELETE /workspaces/:id/nodes/:glm_id?hard=true  → remove the row entirely
   app.delete('/workspaces/:id/nodes/:glm_id', (c) => {
     const principal = requirePrincipal(c);
     const workspaceId = requireWorkspace(c, c.req.param('id')).id;
     const glmId = c.req.param('glm_id');
     const existing = c.var.repos.nodes.findByGlmId(workspaceId, glmId);
     if (!existing) throw httpError(404, `node ${glmId} not found`);
+    requireLockHolder(c, existing.node.id, principal.user.id);
+
+    if (c.req.query('hard') === 'true') {
+      // A soft-delete keeps the row, so it keeps its (workspace, glm_id) and
+      // (workspace, content_hash) uniqueness — an author who mis-created a node
+      // could never re-create it correctly. A hard delete frees both. Inbound
+      // edges are swept first: they reference the target by glm_id, so nothing
+      // cascades on that side.
+      //
+      // The change_log row is written first: its node_id is `ON DELETE SET
+      // NULL`, so appending after the row is gone would violate the foreign
+      // key. Written first, the entry survives the delete with a null node_id.
+      c.var.repos.changeLog.append({
+        workspaceId,
+        nodeId: existing.node.id,
+        userId: principal.user.id,
+        op: 'delete',
+        beforeContentHash: existing.node.contentHash,
+      });
+      const edgesRemoved = c.var.repos.nodes.deleteInboundRelationships(workspaceId, glmId);
+      c.var.repos.nodes.delete(existing.node.id);
+      c.var.repos.audit.append({
+        id: randomUUID(),
+        workspaceId,
+        userId: principal.user.id,
+        eventType: 'node.delete',
+        payload: { glmId, hard: true, inboundEdgesRemoved: edgesRemoved },
+      });
+      c.var.deps.events.publish(workspaceId, {
+        type: 'node.changed',
+        payload: { op: 'delete', node: existing.node },
+        ts: c.var.deps.clock().toISOString(),
+      });
+      return c.json({ deleted: glmId, hard: true, inboundEdgesRemoved: edgesRemoved });
+    }
 
     const updated = c.var.repos.nodes.update({
-      ...nodeToInput(existing.node),
+      ...nodeToInput(existing),
       revisionStatus: 'obsolete',
       authoredBy: principal.user.email,
     });
@@ -172,7 +204,8 @@ export function nodeRoutes(): Hono<AppEnv> {
   app.get('/workspaces/:id/nodes/:glm_id/where-used', (c) => {
     requirePrincipal(c);
     const workspaceId = requireWorkspace(c, c.req.param('id')).id;
-    const glmId = c.req.param('glm_id');    const all = c.var.repos.nodes.listByWorkspace(workspaceId);
+    const glmId = c.req.param('glm_id');
+    const all = c.var.repos.nodes.listByWorkspace(workspaceId);
     const result = whereUsed(
       glmId,
       all.map((n) => ({ node: n.node, relationships: n.relationships })),
@@ -184,7 +217,8 @@ export function nodeRoutes(): Hono<AppEnv> {
   app.post('/workspaces/:id/nodes/:glm_id/lock', (c) => {
     const principal = requirePrincipal(c);
     const workspaceId = requireWorkspace(c, c.req.param('id')).id;
-    const glmId = c.req.param('glm_id');    const node = c.var.repos.nodes.findByGlmId(workspaceId, glmId);
+    const glmId = c.req.param('glm_id');
+    const node = c.var.repos.nodes.findByGlmId(workspaceId, glmId);
     if (!node) throw httpError(404, `node ${glmId} not found`);
 
     const { granted, lock } = c.var.repos.locks.acquire(
@@ -211,7 +245,8 @@ export function nodeRoutes(): Hono<AppEnv> {
   app.put('/workspaces/:id/nodes/:glm_id/lock/heartbeat', (c) => {
     const principal = requirePrincipal(c);
     const workspaceId = requireWorkspace(c, c.req.param('id')).id;
-    const glmId = c.req.param('glm_id');    const node = c.var.repos.nodes.findByGlmId(workspaceId, glmId);
+    const glmId = c.req.param('glm_id');
+    const node = c.var.repos.nodes.findByGlmId(workspaceId, glmId);
     if (!node) throw httpError(404, `node ${glmId} not found`);
 
     const ok = c.var.repos.locks.heartbeat(node.node.id, principal.user.id, c.var.deps.clock());
@@ -224,7 +259,8 @@ export function nodeRoutes(): Hono<AppEnv> {
   app.delete('/workspaces/:id/nodes/:glm_id/lock', (c) => {
     const principal = requirePrincipal(c);
     const workspaceId = requireWorkspace(c, c.req.param('id')).id;
-    const glmId = c.req.param('glm_id');    const node = c.var.repos.nodes.findByGlmId(workspaceId, glmId);
+    const glmId = c.req.param('glm_id');
+    const node = c.var.repos.nodes.findByGlmId(workspaceId, glmId);
     if (!node) throw httpError(404, `node ${glmId} not found`);
 
     const released = c.var.repos.locks.release(node.node.id, principal.user.id);
@@ -258,8 +294,22 @@ function requireLockHolder(c: { var: AppEnv['Variables'] }, nodeId: string, user
   }
 }
 
-function nodeToInput(node: SekkeiNode): NodeInput {
+/**
+ * Round-trip a stored node back into the shape `NodeRepository.update()` wants.
+ * Takes the full `NodeWithChildren`, not just the node: `update()` rewrites the
+ * three child tables from its input, so dropping them here would delete the
+ * node's edges, parameters and constraints as a side effect of a status change.
+ */
+function nodeToInput({
+  node,
+  parameters,
+  constraints,
+  relationships,
+}: NodeWithChildren): NodeInput {
   return {
+    parameters,
+    constraints,
+    relationships,
     id: node.id,
     workspaceId: node.workspaceId,
     glmId: node.glmId,
@@ -287,6 +337,11 @@ interface BuildOpts {
   defaultGlmId?: string;
   defaultStratum?: Stratum;
   defaults?: SekkeiNode;
+  /**
+   * The node as currently stored, on update paths. Supplies the fallback for
+   * the three child collections — see `buildNodeInput`.
+   */
+  existing?: NodeWithChildren;
 }
 
 async function buildNodeInput(body: Partial<NodeInput>, opts: BuildOpts): Promise<NodeInput> {
@@ -313,5 +368,15 @@ async function buildNodeInput(body: Partial<NodeInput>, opts: BuildOpts): Promis
     specKind: body.specKind ?? opts.defaults?.specKind ?? null,
     authoredBy: body.authoredBy ?? opts.principalEmail,
     generatorIdentity: body.generatorIdentity ?? opts.defaults?.generatorIdentity ?? null,
+    // `NodeRepository.update()` clears node_parameters / node_constraints /
+    // node_relationships and rewrites them from this input, so omitting these
+    // is not "leave them alone" — it deletes them. On update paths we fall
+    // back to what is already stored; a body-only edit (glm_apply_patch, glm
+    // refine, the editor) must not destroy the node's graph wiring. Passing an
+    // explicit array still replaces the collection wholesale, and an explicit
+    // `[]` still clears it.
+    parameters: body.parameters ?? opts.existing?.parameters,
+    constraints: body.constraints ?? opts.existing?.constraints,
+    relationships: body.relationships ?? opts.existing?.relationships,
   };
 }

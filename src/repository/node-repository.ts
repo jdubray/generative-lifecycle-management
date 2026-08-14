@@ -1,5 +1,9 @@
 import type { Database, Statement } from 'bun:sqlite';
-import { contentHash, ContentHashMismatchError, verifyContentHash } from '../domain/content-hash.ts';
+import {
+  ContentHashMismatchError,
+  contentHash,
+  verifyContentHash,
+} from '../domain/content-hash.ts';
 import type {
   NodeConstraint,
   NodeParameter,
@@ -70,6 +74,7 @@ export class NodeRepository {
 
   private readonly stInsertRel: Statement;
   private readonly stDeleteRels: Statement;
+  private readonly stDeleteInboundRels: Statement;
   private readonly stSelectRels: Statement;
 
   constructor(db: Database) {
@@ -96,6 +101,9 @@ export class NodeRepository {
 
     this.stInsertRel = db.prepare(REL_INSERT_SQL);
     this.stDeleteRels = db.prepare('DELETE FROM node_relationships WHERE source_node_id = ?');
+    this.stDeleteInboundRels = db.prepare(
+      'DELETE FROM node_relationships WHERE target_glm_id = ?2 AND source_node_id IN (SELECT id FROM nodes WHERE workspace_id = ?1)',
+    );
     this.stSelectRels = db.prepare(
       'SELECT source_node_id, ord, kind, target_glm_id, attributes_json FROM node_relationships WHERE source_node_id = ? ORDER BY ord ASC',
     );
@@ -186,6 +194,19 @@ export class NodeRepository {
   delete(id: string): boolean {
     const r = this.stDeleteNode.run(id);
     return r.changes > 0;
+  }
+
+  /**
+   * Delete every edge in the workspace that points AT `glmId`. Relationships
+   * reference their target by glm_id rather than by surrogate id, so no foreign
+   * key cascades on the inbound side — without this, hard-deleting a node
+   * leaves its parents composing a glm_id that resolves to nothing.
+   *
+   * Returns the number of edges removed. Sibling `ord` values are left as they
+   * are; they only define ordering, and gaps are harmless.
+   */
+  deleteInboundRelationships(workspaceId: string, glmId: string): number {
+    return this.stDeleteInboundRels.run(workspaceId, glmId).changes;
   }
 
   // -------------------------------------------------------------------------
@@ -281,7 +302,9 @@ export class NodeRepository {
     };
 
     const parameters = (this.stSelectParams.all(row.id) as ParamRow[]).map(paramFromRow);
-    const constraints = (this.stSelectConstraints.all(row.id) as ConstraintRow[]).map(constraintFromRow);
+    const constraints = (this.stSelectConstraints.all(row.id) as ConstraintRow[]).map(
+      constraintFromRow,
+    );
     const relationships = (this.stSelectRels.all(row.id) as RelRow[]).map(relFromRow);
 
     return { node, parameters, constraints, relationships };
@@ -446,6 +469,8 @@ function relFromRow(r: RelRow): NodeRelationship {
     ord: r.ord,
     kind: r.kind as NodeRelationship['kind'],
     targetGlmId: r.target_glm_id,
-    attributes: r.attributes_json ? (JSON.parse(r.attributes_json) as Record<string, unknown>) : null,
+    attributes: r.attributes_json
+      ? (JSON.parse(r.attributes_json) as Record<string, unknown>)
+      : null,
   };
 }
