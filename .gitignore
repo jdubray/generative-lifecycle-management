@@ -41,8 +41,13 @@ Thumbs.db
 .vscode/
 .idea/
 
-# Local agent / tooling state (per-developer, not source)
-.claude/
+# Local agent / tooling state (per-developer, not source).
+# Exception: the glm skill and glm-* slash commands are product surface, not
+# developer state — they are how a Claude Code session drives GLM, and they
+# have to version alongside the MCP tools and gates they describe.
+.claude/*
+!.claude/skills/
+!.claude/commands/
 .puffin/
 .cursor/
 .aider*
