@@ -20,9 +20,11 @@
     "verify": "bun run scripts/verify.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "googleapis": "144",
     "hono": "^4.6.0",
-    "yaml": "^2.6.0"
+    "yaml": "^2.6.0",
+    "zod": "^3.23.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",

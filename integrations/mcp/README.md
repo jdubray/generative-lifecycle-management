@@ -60,6 +60,13 @@ After copying, restart Claude Code (or run `/reload`) and the commands become av
 
 ## Available MCP tools
 
+> **Two transports serve these tools.** The GLM server exposes them over
+> Streamable HTTP at `/mcp` (`src/server/routes/mcp.ts`), which is what the
+> `glm` Claude Code plugin uses — no subprocess, no path, works from any
+> project. This package is the stdio transport: a subprocess launched with a
+> path into this repo. Both call `registerTools()` below, so the tool surface
+> is identical. Prefer HTTP unless you are debugging the MCP layer itself.
+
 | Tool | Purpose |
 |---|---|
 | `glm_status` | Workspace summary (counts, last verifier run) |

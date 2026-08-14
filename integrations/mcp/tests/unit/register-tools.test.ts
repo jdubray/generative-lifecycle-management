@@ -1,8 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ResolvedConfig } from '../../src/lib/config.ts';
 import type { GlmClient } from '../../src/lib/glm-client.ts';
-import { registerTools } from '../../src/tools/index.ts';
+import { type ToolRegistrar, registerTools } from '../../src/tools/index.ts';
 
 const CONFIG: ResolvedConfig = {
   port: 3300,
@@ -16,12 +15,12 @@ interface Registered {
   config: { title?: string; description?: string; inputSchema?: Record<string, unknown> };
 }
 
-function fakeServer(into: Registered[]): McpServer {
+function fakeServer(into: Registered[]): ToolRegistrar {
   return {
     registerTool: (name: string, config: Registered['config']) => {
       into.push({ name, config });
     },
-  } as unknown as McpServer;
+  };
 }
 
 describe('registerTools', () => {

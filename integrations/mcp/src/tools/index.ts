@@ -1,4 +1,3 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ResolvedConfig } from '../lib/config.ts';
 import type { GlmClient } from '../lib/glm-client.ts';
 import { ApplyPatchInputSchema, runApplyPatch } from './apply-patch.ts';
@@ -18,12 +17,40 @@ import { UpdateNodeInputSchema, runUpdateNode } from './update-node.ts';
 import { VerifyInputSchema, runVerify } from './verify.ts';
 
 /**
+ * The slice of `McpServer` this module actually uses.
+ *
+ * Typed structurally rather than as the SDK's `McpServer` so registration is
+ * not welded to one physical copy of `@modelcontextprotocol/sdk`. Two
+ * transports serve these tools — the stdio binary in this package and the
+ * HTTP route in the GLM server (`src/server/routes/mcp.ts`) — and each
+ * resolves the SDK from its own node_modules. `McpServer` carries private
+ * fields, so TypeScript treats two installs as unrelated types even when the
+ * versions match. It also makes the fake in `register-tools.test.ts` honest:
+ * this interface *is* the contract those tests stand in for.
+ */
+export interface ToolRegistrar {
+  registerTool(
+    name: string,
+    // The SDK types `registerTool` as generic over the zod shape it is given.
+    // Narrowing these parameters would make that generic method unassignable
+    // to this interface (parameters are contravariant), so the seam stays
+    // wide. Type safety lives where it matters: each tool's own Input type and
+    // `run*` function are fully typed, and the schemas are built from zod
+    // validators in the tool modules.
+    // biome-ignore lint/suspicious/noExplicitAny: structural seam over a generic SDK method
+    config: any,
+    // biome-ignore lint/suspicious/noExplicitAny: structural seam over a generic SDK method
+    handler: (args: any) => any,
+  ): unknown;
+}
+
+/**
  * Register every GLM tool against the provided MCP server instance. Kept
  * separate from `bin/glm-mcp.ts` so the registration is unit-testable
- * (a fake McpServer can record what was registered).
+ * (a fake registrar can record what was registered).
  */
 export function registerTools(
-  server: McpServer,
+  server: ToolRegistrar,
   deps: { client: GlmClient; config: ResolvedConfig },
 ): void {
   server.registerTool(
